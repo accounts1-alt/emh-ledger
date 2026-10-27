@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { q, rpc, supabase } from '../lib/supabase';
 import { addDays } from '../lib/recon';
-import { loadCompare } from '../lib/data';
+import { loadCompare, loadCategories, inCategoryOptions, categoryName } from '../lib/data';
 import { fmtShort, fmtRange, money, r2, today } from '../lib/format';
 import { PageHead, useLoad, useToast, Loading, ErrorBox, Empty, EditDialog, ReasonDialog, HistoryDialog, AdjustedMark, type FieldDef } from '../components/ui';
 import { CompareTable } from './Compare';
@@ -14,7 +14,7 @@ const ALL = [...COINS, ...NOTES, ...VOUCH];
 
 type Row = { date_from: string; date_to: string; note: string } & Record<string, string>;
 type Chq = { day: string; bank: string; cheque_no: string; payer: string; amount: string };
-type CountRec = { id: string; ref: number; date_from: string; date_to: string; cash_total: number; vouchers_total: number; coins_total: number; notes_total: number; note: string | null; created_at: string; updated_at: string } & Record<string, number>;
+type CountRec = { id: string; ref: number; date_from: string; date_to: string; cash_total: number; vouchers_total: number; coins_total: number; notes_total: number; note: string | null; category_id: string; against_pos: boolean; created_at: string; updated_at: string } & Record<string, unknown>;
 
 const blankRow = (d: string): Row => ({ date_from: d, date_to: '', note: '', ...Object.fromEntries(ALL.map(([k]) => [k, ''])) } as Row);
 const sumOf = (r: Row, set: typeof ALL) => r2(set.reduce((s, [k, , v]) => s + (Number(r[k]) || 0) * v, 0));
@@ -27,6 +27,7 @@ export default function CountPage() {
   const [cheques, setCheques] = useState<Chq[]>([]);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState<[string, string] | null>(null);
+  const cats = useLoad(loadCategories, []);
   const [edit, setEdit] = useState<CountRec | null>(null); const [voiding, setVoiding] = useState<CountRec | null>(null); const [hist, setHist] = useState<CountRec | null>(null);
 
   // start the form at the day after the last count, skipping Saturdays
@@ -141,11 +142,11 @@ export default function CountPage() {
         <h2>Recent counts</h2>
         {recent.loading ? <Loading /> : recent.error ? <ErrorBox error={recent.error} /> : !recent.data?.length ? <Empty>No counts yet.</Empty> : (
           <div className="table-wrap"><table>
-            <thead><tr><th>#</th><th>Date</th><th className="r">Coins</th><th className="r">Notes</th><th className="r">Cash</th><th className="r">Vouchers</th><th>Note</th><th /></tr></thead>
+            <thead><tr><th>#</th><th>Date</th><th className="r">Coins</th><th className="r">Notes</th><th className="r">Cash</th><th className="r">Vouchers</th><th>Category</th><th>Note</th><th /></tr></thead>
             <tbody>{recent.data.map(c => (
               <tr key={c.id}><td className="muted">{c.ref}</td><td className="nowrap">{fmtRange(c.date_from, c.date_to)} <AdjustedMark row={c} onClick={() => setHist(c)} /></td>
                 <td className="r num">{money(c.coins_total)}</td><td className="r num">{money(c.notes_total)}</td><td className="r num"><strong>{money(c.cash_total)}</strong></td>
-                <td className="r num">{money(c.vouchers_total, { blankZero: true })}</td><td className="small">{c.note}</td>
+                <td className="r num">{money(c.vouchers_total, { blankZero: true })}</td><td className="small">{categoryName(cats.data, c.category_id)}</td><td className="small">{c.note}</td>
                 <td className="nowrap"><button className="ghost small" onClick={() => setEdit(c)}>Adjust</button><button className="ghost small" onClick={() => setVoiding(c)}>Void</button></td></tr>
             ))}</tbody>
           </table></div>
@@ -153,7 +154,7 @@ export default function CountPage() {
       </section>
       {edit && <EditDialog table="counts" row={edit} title={`Adjust count #${edit.ref}`} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); recent.reload(); }}
         fields={[{ key: 'date_from', label: 'Day', type: 'date' }, { key: 'date_to', label: 'To', type: 'date' },
-          ...ALL.map(([k, l]) => ({ key: k, label: `${k.startsWith('v') ? 'Voucher ' : ''}${l} (count)`, type: 'int' } as FieldDef)), { key: 'note', label: 'Note', type: 'text' }]} />}
+          ...ALL.map(([k, l]) => ({ key: k, label: `${k.startsWith('v') ? 'Voucher ' : ''}${l} (count)`, type: 'int' } as FieldDef)), { key: 'category_id', label: 'Category (cash)', type: 'select', options: inCategoryOptions(cats.data, edit.category_id) }, { key: 'against_pos', label: 'Cash should be in Semtek', type: 'bool' }, { key: 'note', label: 'Note', type: 'text' }]} />}
       {voiding && <ReasonDialog title={`Void count #${voiding.ref}`} danger confirm="Void count" onCancel={() => setVoiding(null)}
         prompt={<>This removes the {fmtRange(voiding.date_from, voiding.date_to)} count ({money(voiding.cash_total)} cash) and its cheques from every report. It stays in the change history.</>}
         onConfirm={async reason => {

@@ -109,8 +109,23 @@ async function loadEntries(from: string, to: string) {
 
 function InOutReport({ from, to }: { from: string; to: string }) {
   const { data, error, loading } = useLoad(async () => {
-    const [{ entries }, sem] = await Promise.all([loadEntries(from, to), q(supabase.from('v_semtek_daily').select('*').gte('txn_date', from).lte('txn_date', to)) as Promise<Record<string, number>[]>]);
-    return { entries, sem };
+    const [{ entries, cats }, sem, cards, counts, cheques, lots] = await Promise.all([
+      loadEntries(from, to),
+      q(supabase.from('v_semtek_daily').select('*').gte('txn_date', from).lte('txn_date', to)) as Promise<Record<string, number>[]>,
+      // money in other categories, kept out of Semtek (entries are counted separately, so items from entries are skipped)
+      all((a, b) => supabase.from('card_txns').select('amount,category_id').eq('voided', false).eq('against_pos', false).gte('txn_date', from).lte('txn_date', to).range(a, b)) as Promise<{ amount: number; category_id: string }[]>,
+      q(supabase.from('counts').select('cash_total,category_id').eq('voided', false).eq('against_pos', false).gte('date_from', from).lte('date_from', to)) as Promise<{ cash_total: number; category_id: string }[]>,
+      q(supabase.from('cheques').select('amount,category_id').eq('voided', false).eq('against_pos', false).eq('opening', false).is('entry_id', null).is('bounce_of', null).gte('received_date', from).lte('received_date', to)) as Promise<{ amount: number; category_id: string }[]>,
+      q(supabase.from('voucher_lots').select('amount,category_id').eq('voided', false).eq('against_pos', false).eq('opening', false).is('entry_id', null).gte('received_date', from).lte('received_date', to)) as Promise<{ amount: number; category_id: string }[]>,
+    ]);
+    const name = (id: string) => cats.find(c => c.id === id)?.name ?? '?';
+    const items = [
+      ...cards.map(x => ({ cat: name(x.category_id), col: 'card', amount: Number(x.amount) })),
+      ...counts.map(x => ({ cat: name(x.category_id), col: 'cash', amount: Number(x.cash_total) })),
+      ...cheques.map(x => ({ cat: name(x.category_id), col: 'cheque', amount: Number(x.amount) })),
+      ...lots.map(x => ({ cat: name(x.category_id), col: 'voucher', amount: Number(x.amount) })),
+    ];
+    return { entries, sem, items };
   }, [from, to]);
   if (loading) return <Loading />; if (error || !data) return <ErrorBox error={error ?? ''} />;
   const semSum = (k: string) => r2(data.sem.reduce((s, d) => s + Number(d[k] ?? 0), 0));
@@ -122,6 +137,7 @@ function InOutReport({ from, to }: { from: string; to: string }) {
     for (const e of data.entries.filter(x => x.direction === dir && !(dir === 'in' && x.against_pos))) {
       const r = map.get(e.cat) ?? {}; r[colOf(e.account)] = r2((r[colOf(e.account)] ?? 0) + e.amount); map.set(e.cat, r);
     }
+    if (dir === 'in') for (const it of data.items) { const r = map.get(it.cat) ?? {}; r[it.col] = r2((r[it.col] ?? 0) + it.amount); map.set(it.cat, r); }
     return [...map.entries()];
   };
   const tbl = (title: string, rows: [string, Record<string, number>][]) => (

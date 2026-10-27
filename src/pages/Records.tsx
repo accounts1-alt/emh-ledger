@@ -5,6 +5,7 @@ import { fmtShort, money, today, MERCHANT_LABEL } from '../lib/format';
 import { PageHead, Tabs, DateRange, useLoad, useToast, Loading, ErrorBox, Empty, EditDialog, ReasonDialog, HistoryDialog, AdjustedMark, Modal, type FieldDef } from '../components/ui';
 import { useDefaultRange } from './Compare';
 import { ChequeRegister, VoucherRegister } from './Registers';
+import { loadCategories, inCategoryOptions, categoryName } from '../lib/data';
 
 type Tab = 'semtek' | 'cards' | 'bacs' | 'cheques' | 'vouchers';
 type Rec = Record<string, unknown> & { id: string; created_at: string; updated_at: string; voided: boolean };
@@ -48,6 +49,8 @@ export default function RecordsPage() {
   }) as Promise<Rec[]> : null, [tab, from, to, showVoided, ready]);
   const [edit, setEdit] = useState<Rec | null>(null); const [voiding, setVoiding] = useState<Rec | null>(null); const [hist, setHist] = useState<Rec | null>(null);
   const [adding, setAdding] = useState(false);
+  const cats = useLoad(loadCategories, []);
+  const editFields = (r: Rec): FieldDef[] => tab === 'semtek' ? c.fields : [...c.fields, { key: 'category_id', label: 'Category', type: 'select', options: inCategoryOptions(cats.data, r.category_id) }, ...(tab === 'cards' ? [{ key: 'against_pos', label: 'Should be in Semtek', type: 'bool' } as FieldDef] : [])];
   const s = search.trim().toLowerCase();
   const rows = (list.data ?? []).filter(r => !s || c.search.some(k => String(r[k] ?? '').toLowerCase().includes(s)) || String(r.amount ?? '').includes(s));
 
@@ -76,26 +79,26 @@ export default function RecordsPage() {
             <tfoot><tr><th colSpan={5}>Total ({rows.filter(r => !r.voided).length} lines)</th>{['cash', 'cheque', 'credit_card', 'vouchers', 'bacs', 'on_account'].map(k => <td key={k} className="r num">{money(rows.filter(r => !r.voided).reduce((x, r) => x + Number(r[k]), 0))}</td>)}<td /></tr></tfoot>
           </>}
           {tab === 'cards' && <>
-            <thead><tr><th>Date</th><th>Time</th><th>Provider</th><th>Customer / card</th><th className="r">Amount</th><th className="r">Fee</th><th className="r">Net</th><th>Banked</th><th /></tr></thead>
+            <thead><tr><th>Date</th><th>Time</th><th>Provider</th><th>Customer / card</th><th>Category</th><th className="r">Amount</th><th className="r">Fee</th><th className="r">Net</th><th>Banked</th><th /></tr></thead>
             <tbody>{rows.map(r => (
               <tr key={r.id} className={r.voided ? 'voided' : ''}><td className="nowrap">{fmtShort(String(r.txn_date))} <AdjustedMark row={r} onClick={() => setHist(r)} /></td><td className="muted small">{String(r.txn_at ?? '').slice(11, 16)}</td>
-                <td>{MERCHANT_LABEL[String(r.merchant)]}</td><td className="wrap">{String(r.customer || '')}{r.card_last4 ? <span className="muted small"> ****{String(r.card_last4)} {String(r.card_scheme ?? '')}</span> : null}</td>
+                <td>{MERCHANT_LABEL[String(r.merchant)]}</td><td className="wrap">{String(r.customer || '')}{r.card_last4 ? <span className="muted small"> ****{String(r.card_last4)} {String(r.card_scheme ?? '')}</span> : null}</td><td className="small">{categoryName(cats.data, r.category_id)}{r.against_pos === false ? <span className="muted"> · not in Semtek</span> : null}</td>
                 <td className="r num">{money(Number(r.amount))}</td><td className="r num">{money(Number(r.fee), { blankZero: true })}</td><td className="r num">{money(Number(r.net))}</td>
                 <td>{r.banking_id ? <span className="chip ok">banked</span> : <span className="chip pending">waiting</span>}</td>
                 <td className="nowrap">{!r.voided && <><button className="ghost small" onClick={() => setEdit(r)}>Adjust</button><button className="ghost small" onClick={() => setVoiding(r)}>Void</button></>}</td></tr>))}</tbody>
-            <tfoot><tr><th colSpan={4}>Total</th>{['amount', 'fee', 'net'].map(k => <td key={k} className="r num">{money(rows.filter(r => !r.voided).reduce((x, r) => x + Number(r[k]), 0))}</td>)}<td colSpan={2} /></tr></tfoot>
+            <tfoot><tr><th colSpan={5}>Total</th>{['amount', 'fee', 'net'].map(k => <td key={k} className="r num">{money(rows.filter(r => !r.voided).reduce((x, r) => x + Number(r[k]), 0))}</td>)}<td colSpan={2} /></tr></tfoot>
           </>}
           {tab === 'bacs' && <>
-            <thead><tr><th>Date</th><th>Description</th><th className="r">Amount</th><th /></tr></thead>
+            <thead><tr><th>Date</th><th>Description</th><th>Category</th><th className="r">Amount</th><th /></tr></thead>
             <tbody>{rows.map(r => (
-              <tr key={r.id} className={r.voided ? 'voided' : ''}><td className="nowrap">{fmtShort(String(r.txn_date))} <AdjustedMark row={r} onClick={() => setHist(r)} /></td><td>{String(r.description)}</td><td className="r num">{money(Number(r.amount))}</td>
+              <tr key={r.id} className={r.voided ? 'voided' : ''}><td className="nowrap">{fmtShort(String(r.txn_date))} <AdjustedMark row={r} onClick={() => setHist(r)} /></td><td>{String(r.description)}</td><td className="small">{categoryName(cats.data, r.category_id)}</td><td className="r num">{money(Number(r.amount))}</td>
                 <td className="nowrap">{!r.voided && <><button className="ghost small" onClick={() => setEdit(r)}>Adjust</button><button className="ghost small" onClick={() => setVoiding(r)}>Void</button></>}</td></tr>))}</tbody>
-            <tfoot><tr><th colSpan={2}>Total</th><td className="r num">{money(rows.filter(r => !r.voided).reduce((x, r) => x + Number(r.amount), 0))}</td><td /></tr></tfoot>
+            <tfoot><tr><th colSpan={3}>Total</th><td className="r num">{money(rows.filter(r => !r.voided).reduce((x, r) => x + Number(r.amount), 0))}</td><td /></tr></tfoot>
           </>}
         </table></div></section>
       )}
       </>}
-      {edit && <EditDialog table={c.table} row={edit} fields={c.fields} title="Adjust line" onClose={() => setEdit(null)} onSaved={() => { setEdit(null); list.reload(); }} />}
+      {edit && <EditDialog table={c.table} row={edit} fields={editFields(edit)} title="Adjust line" onClose={() => setEdit(null)} onSaved={() => { setEdit(null); list.reload(); }} />}
       {voiding && <ReasonDialog title="Void line" danger confirm="Void line" onCancel={() => setVoiding(null)} prompt="This line will be left out of every report and comparison. It stays in the change history and can be seen with “Show voided”."
         onConfirm={async reason => { await q(supabase.from(c.table).update({ voided: true, change_reason: reason }).eq('id', voiding.id)); setVoiding(null); list.reload(); toast('Line voided.'); }} />}
       {hist && <HistoryDialog table={c.table} id={hist.id} title="Line history" onClose={() => setHist(null)} />}

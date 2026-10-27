@@ -9,6 +9,10 @@ export async function loadSettings(): Promise<Settings & { rows: { id: string; k
 }
 
 export type Category = { id: string; name: string; direction: 'in' | 'out'; against_pos_default: boolean; system_key: string | null; sort: number; voided: boolean };
+/** Options for a "money received" category picker. Keeps a retired category if the record already uses it. */
+export const inCategoryOptions = (cats: Category[] | null | undefined, current?: unknown): [string, string][] =>
+  (cats ?? []).filter(c => c.direction === 'in' && (!c.voided || c.id === current)).map(c => [c.id, c.name]);
+export const categoryName = (cats: Category[] | null | undefined, id: unknown) => (cats ?? []).find(c => c.id === id)?.name ?? '';
 export const loadCategories = async () => q(supabase.from('categories').select('*').order('direction').order('sort').order('name')) as Promise<Category[]>;
 
 export type Coverage = { source: string; date_from: string; date_to: string };
@@ -22,8 +26,8 @@ export async function loadCompare(from: string, to: string): Promise<{ groups: C
   const wFrom = addDays(from, -7), wTo = addDays(to, 7);
   const [semtek, cards, counts, floats, cheques, vouchers, entries, bacsLines, semBacs, coverage, settings] = await Promise.all([
     q(supabase.from('v_semtek_daily').select('*').gte('txn_date', from).lte('txn_date', to)),
-    all((a, b) => supabase.from('card_txns').select('txn_date,merchant,amount').eq('voided', false).gte('txn_date', from).lte('txn_date', to).range(a, b)),
-    q(supabase.from('counts').select('id,ref,date_from,date_to,cash_total,vouchers_total').eq('voided', false).lte('date_from', wTo).gte('date_to', wFrom)),
+    all((a, b) => supabase.from('card_txns').select('txn_date,merchant,amount,against_pos').eq('voided', false).gte('txn_date', from).lte('txn_date', to).range(a, b)),
+    q(supabase.from('counts').select('id,ref,date_from,date_to,cash_total,vouchers_total,against_pos').eq('voided', false).lte('date_from', wTo).gte('date_to', wFrom)),
     q(supabase.from('floats').select('id,ref,amount,date_from,date_to,unused').eq('voided', false).lte('date_from', wTo).gte('date_to', wFrom)),
     q(supabase.from('cheques').select('received_date,amount,against_pos').eq('voided', false).gte('received_date', from).lte('received_date', to)),
     q(supabase.from('voucher_lots').select('received_date,amount,against_pos').eq('voided', false).gte('received_date', from).lte('received_date', to)),
@@ -34,8 +38,8 @@ export async function loadCompare(from: string, to: string): Promise<{ groups: C
     loadSettings(),
   ]) as unknown as [
     { txn_date: string; cash: number; cheque: number; credit_card: number; vouchers: number; bacs: number }[],
-    { txn_date: string; merchant: string; amount: number }[],
-    { id: string; ref: number; date_from: string; date_to: string; cash_total: number; vouchers_total: number }[],
+    { txn_date: string; merchant: string; amount: number; against_pos: boolean }[],
+    { id: string; ref: number; date_from: string; date_to: string; cash_total: number; vouchers_total: number; against_pos: boolean }[],
     { id: string; ref: number; amount: number; date_from: string; date_to: string; unused: boolean }[],
     { received_date: string; amount: number; against_pos: boolean }[],
     { received_date: string; amount: number; against_pos: boolean }[],
@@ -55,7 +59,7 @@ export async function loadCompare(from: string, to: string): Promise<{ groups: C
     settings.bacs_window_days,
   ).filter(m => { const d = (m.bank ?? m.semtek)!.txn_date; return d >= from && d <= to; });
   const cardsByDay = new Map<string, Record<string, number>>();
-  for (const c of num(cards)) { const m = cardsByDay.get(c.txn_date) ?? {}; m[c.merchant] = (m[c.merchant] ?? 0) + Number(c.amount); cardsByDay.set(c.txn_date, m); }
+  for (const c of num(cards).filter(c => c.against_pos !== false)) { const m = cardsByDay.get(c.txn_date) ?? {}; m[c.merchant] = (m[c.merchant] ?? 0) + Number(c.amount); cardsByDay.set(c.txn_date, m); }
   return { groups, bacs, cardsByDay };
 }
 

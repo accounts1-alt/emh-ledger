@@ -5,7 +5,7 @@ import { ENTRY_ACCOUNT_LABEL, fmtDate, money, today } from '../lib/format';
 import { PageHead, useLoad, useToast, Loading, ErrorBox, Empty, EditDialog, ReasonDialog, HistoryDialog, AdjustedMark } from '../components/ui';
 
 type EntryRec = { id: string; ref: number; entry_date: string; direction: 'in' | 'out'; account: string; category_id: string; against_pos: boolean; amount: number; reference: string | null; note: string | null; created_at: string; updated_at: string };
-const IN_ACCOUNTS = ['cash', 'cheque', 'voucher', 'paymentsense', 'amex', 'stripe_shop', 'stripe_office'];
+const IN_ACCOUNTS = ['cash', 'cheque', 'voucher'];
 const OUT_ACCOUNTS = ['cash', 'cheque', 'voucher'];
 
 export default function EntryPage() {
@@ -24,7 +24,6 @@ export default function EntryPage() {
     if (k === 'category_id') n.against_pos = !!cats.data?.find(c => c.id === v)?.against_pos_default;
     return n;
   });
-  const isCard = !['cash', 'cheque', 'voucher'].includes(f.account);
 
   const save = async () => {
     setBusy(true); setErr(null);
@@ -36,7 +35,7 @@ export default function EntryPage() {
         against_pos: f.direction === 'in' ? f.against_pos : false, amount: Number(f.amount), reference: f.reference || null, note: f.note || null,
       }).select('id,ref').single()) as { id: string; ref: number };
       if (f.direction === 'in' && f.account === 'cheque') {
-        await q(supabase.from('cheques').insert({ received_date: f.entry_date, bank: f.bank || null, cheque_no: f.cheque_no || null, payer: f.payer || f.reference || null, amount: Number(f.amount), entry_id: e.id, against_pos: f.against_pos }));
+        await q(supabase.from('cheques').insert({ received_date: f.entry_date, bank: f.bank || null, cheque_no: f.cheque_no || null, payer: f.payer || f.reference || null, amount: Number(f.amount), entry_id: e.id, against_pos: f.against_pos, category_id: f.category_id }));
       }
       toast(`Entry #${e.ref} saved.`); setF({ ...blank, direction: f.direction, entry_date: f.entry_date }); recent.reload();
     } catch (x) { setErr(String((x as Error).message)); }
@@ -67,7 +66,6 @@ export default function EntryPage() {
           <label className="check"><input id="e-pos" type="checkbox" checked={f.against_pos} onChange={e => set('against_pos', e.target.checked)} />
             <span><strong>Should be in Semtek</strong> – include in the comparison against Semtek. Untick for separate money such as a wholesale customer.</span></label>
         )}
-        {f.direction === 'in' && isCard && !f.against_pos && <p className="small muted">The card payment itself comes in with the card file. This entry tags it as separate money so it is left out of the Semtek comparison and shows under its category.</p>}
         {f.direction === 'in' && f.account === 'cheque' && (
           <div className="grid3">
             <label className="field"><span>Bank</span><input id="e-bank" value={f.bank} onChange={e => set('bank', e.target.value)} /></label>

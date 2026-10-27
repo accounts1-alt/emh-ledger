@@ -2,8 +2,8 @@
 import { round2 } from './parsers';
 
 export interface SemtekDay { txn_date: string; cash: number; cheque: number; credit_card: number; vouchers: number; bacs: number }
-export interface CardTxn { txn_date: string; merchant: string; amount: number }
-export interface CountRow { id: string; ref: number; date_from: string; date_to: string; cash_total: number; vouchers_total: number }
+export interface CardTxn { txn_date: string; merchant: string; amount: number; against_pos?: boolean }
+export interface CountRow { id: string; ref: number; date_from: string; date_to: string; cash_total: number; vouchers_total: number; against_pos?: boolean }
 export interface FloatRow { id: string; ref: number; amount: number; date_from: string; date_to: string; unused: boolean }
 export interface ChequeRow { received_date: string; amount: number; against_pos: boolean }
 export interface VoucherLot { received_date: string; amount: number; against_pos: boolean }
@@ -73,7 +73,7 @@ export function compare(input: {
     const sem = (k: keyof SemtekDay) => sum(input.semtek, r => r.txn_date, r => Number(r[k]) || 0, g);
     const counts = input.counts.filter(c => groupOf.get(c.date_from) === g || (c.date_from < input.from && groupOf.get(c.date_to) === g));
     const floats = input.floats.filter(f => !f.unused && (groupOf.get(f.date_from) === g || (f.date_from < input.from && groupOf.get(f.date_to) === g)));
-    const countTotal = counts.reduce((s, c) => s + Number(c.cash_total), 0);
+    const countTotal = counts.filter(c => c.against_pos !== false).reduce((s, c) => s + Number(c.cash_total), 0);
     const floatTotal = floats.reduce((s, f) => s + Number(f.amount), 0);
     const cashEntries = sum(input.entries.filter(e => e.account === 'cash' && e.direction === 'in' && e.against_pos), e => e.entry_date, e => Number(e.amount), g);
 
@@ -88,7 +88,8 @@ export function compare(input: {
     const chqActual = sum(input.cheques.filter(c => c.against_pos), c => c.received_date, c => Number(c.amount), g);
     const vchActual = sum(input.vouchers.filter(v => v.against_pos), v => v.received_date, v => Number(v.amount), g)
       + 0;
-    const cardGross = sum(input.cards, c => c.txn_date, c => Number(c.amount), g);
+    const cardGross = sum(input.cards.filter(c => c.against_pos !== false), c => c.txn_date, c => Number(c.amount), g);
+    const cardOther = sum(input.cards.filter(c => c.against_pos === false), c => c.txn_date, c => Number(c.amount), g);
     const cardNonPos = sum(input.entries.filter(e => CARD_ACCOUNTS.includes(e.account) && e.direction === 'in' && !e.against_pos), e => e.entry_date, e => Number(e.amount), g);
     const bacsActual = sum(input.bacs, b => b.txn_date, b => Number(b.amount), g);
 
@@ -106,7 +107,7 @@ export function compare(input: {
       cash: fig(semCash, cashActual, cashNote),
       cheque: fig(sem('cheque'), countsDone || chqActual ? chqActual : (sem('cheque') ? null : 0), !countsDone && !chqActual && sem('cheque') ? 'No count entered yet' : undefined),
       vouchers: fig(sem('vouchers'), countsDone || vchActual ? vchActual : (sem('vouchers') ? null : 0), !countsDone && !vchActual && sem('vouchers') ? 'No count entered yet' : undefined),
-      cards: fig(sem('credit_card'), cardsComplete || cardGross ? cardGross - cardNonPos : null, cardsComplete ? (cardNonPos ? `£${cardNonPos.toFixed(2)} non-POS card payments excluded` : undefined) : 'Card files missing for some days'),
+      cards: fig(sem('credit_card'), cardsComplete || cardGross ? cardGross - cardNonPos : null, cardsComplete ? (cardNonPos + cardOther ? `£${(cardNonPos + cardOther).toFixed(2)} of card payments in other categories left out` : undefined) : 'Card files missing for some days'),
       bacs: fig(sem('bacs'), bacsCovered || bacsActual ? bacsActual : null, bacsCovered ? undefined : 'BACS report not loaded for these dates'),
       counts: counts.map(c => c.ref), floats: floats.map(f => f.ref), floatTotal: round2(floatTotal), countTotal: round2(countTotal),
       missing,

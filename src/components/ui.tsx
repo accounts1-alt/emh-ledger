@@ -71,8 +71,8 @@ export function Tabs<T extends string>({ value, onChange, items }: { value: T; o
 export function DateRange({ from, to, onChange }: { from: string; to: string; onChange: (f: string, t: string) => void }) {
   return (
     <div className="daterange">
-      <label>From <input id="range-from" type="date" value={from} onChange={e => onChange(e.target.value, to < e.target.value ? e.target.value : to)} /></label>
-      <label>To <input id="range-to" type="date" value={to} onChange={e => onChange(from > e.target.value ? e.target.value : from, e.target.value)} /></label>
+      <label>From <input id="range-from" type="date" value={from} onChange={e => { const v = e.target.value; if (v) onChange(v, to < v ? v : to); }} /></label>
+      <label>To <input id="range-to" type="date" value={to} onChange={e => { const v = e.target.value; if (v) onChange(from > v ? v : from, v); }} /></label>
     </div>
   );
 }
