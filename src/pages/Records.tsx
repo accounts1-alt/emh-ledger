@@ -4,11 +4,12 @@ import { all, q, supabase } from '../lib/supabase';
 import { fmtShort, money, today, MERCHANT_LABEL } from '../lib/format';
 import { PageHead, Tabs, DateRange, useLoad, useToast, Loading, ErrorBox, Empty, EditDialog, ReasonDialog, HistoryDialog, AdjustedMark, Modal, type FieldDef } from '../components/ui';
 import { useDefaultRange } from './Compare';
+import { ChequeRegister, VoucherRegister } from './Registers';
 
-type Tab = 'semtek' | 'cards' | 'bacs';
+type Tab = 'semtek' | 'cards' | 'bacs' | 'cheques' | 'vouchers';
 type Rec = Record<string, unknown> & { id: string; created_at: string; updated_at: string; voided: boolean };
 
-const CONF: Record<Tab, { table: string; date: string; fields: FieldDef[]; search: string[] }> = {
+const CONF: Record<'semtek' | 'cards' | 'bacs', { table: string; date: string; fields: FieldDef[]; search: string[] }> = {
   semtek: {
     table: 'semtek_lines', date: 'txn_date', search: ['last_name', 'account_no', 'sale_id', 'operator', 'notes'],
     fields: [{ key: 'txn_date', label: 'Date', type: 'date' }, { key: 'type', label: 'Type', type: 'select', options: [['Sale', 'Sale'], ['Payment', 'Payment']] }, { key: 'last_name', label: 'Customer', type: 'text' },
@@ -38,8 +39,9 @@ export default function RecordsPage() {
   const from = override?.[0] ?? dFrom, to = override?.[1] ?? dTo;
   const [tab, setTab] = useState<Tab>('semtek');
   const [search, setSearch] = useState(''); const [showVoided, setShowVoided] = useState(false);
-  const c = CONF[tab];
-  const list = useLoad(async () => (ready || override) ? all((a, b) => {
+  const isRegister = tab === 'cheques' || tab === 'vouchers';
+  const c = CONF[isRegister ? 'semtek' : tab];
+  const list = useLoad(async () => (!isRegister && (ready || override)) ? all((a, b) => {
     let qy = supabase.from(c.table).select('*').gte(c.date, from).lte(c.date, to).order(c.date).order('created_at').range(a, b);
     if (!showVoided) qy = qy.eq('voided', false);
     return qy;
@@ -52,9 +54,10 @@ export default function RecordsPage() {
   return (
     <>
       <PageHead title="Records" sub="Every imported line. Adjust a figure that is wrong at source: the app keeps your corrected figure and the original in its history.">
-        {(ready || override) && <DateRange from={from} to={to} onChange={(f, t) => { setOverride([f, t]); setRange(f, t); }} />}
+        {!isRegister && (ready || override) && <DateRange from={from} to={to} onChange={(f, t) => { setOverride([f, t]); setRange(f, t); }} />}
       </PageHead>
-      <Tabs value={tab} onChange={setTab} items={[['semtek', 'Semtek lines'], ['cards', 'Card transactions'], ['bacs', 'BACS report lines']]} />
+      <Tabs value={tab} onChange={setTab} items={[['semtek', 'Semtek lines'], ['cards', 'Card transactions'], ['bacs', 'BACS report lines'], ['cheques', 'Cheque register'], ['vouchers', 'Voucher register']]} />
+      {tab === 'cheques' ? <ChequeRegister /> : tab === 'vouchers' ? <VoucherRegister /> : <>
       <div className="row wrap-row toolbar">
         <input id="rec-search" className="search" placeholder="Search name, reference, amount…" value={search} onChange={e => setSearch(e.target.value)} />
         <label className="check small"><input type="checkbox" checked={showVoided} onChange={e => setShowVoided(e.target.checked)} /> Show voided</label>
@@ -91,6 +94,7 @@ export default function RecordsPage() {
           </>}
         </table></div></section>
       )}
+      </>}
       {edit && <EditDialog table={c.table} row={edit} fields={c.fields} title="Adjust line" onClose={() => setEdit(null)} onSaved={() => { setEdit(null); list.reload(); }} />}
       {voiding && <ReasonDialog title="Void line" danger confirm="Void line" onCancel={() => setVoiding(null)} prompt="This line will be left out of every report and comparison. It stays in the change history and can be seen with “Show voided”."
         onConfirm={async reason => { await q(supabase.from(c.table).update({ voided: true, change_reason: reason }).eq('id', voiding.id)); setVoiding(null); list.reload(); toast('Line voided.'); }} />}

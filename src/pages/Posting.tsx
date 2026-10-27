@@ -1,20 +1,21 @@
 import { useEffect, useState } from 'react';
 import { q, rpc, supabase } from '../lib/supabase';
 import { loadSettings } from '../lib/data';
-import { fmtDate, fmtShort, money, r2, today } from '../lib/format';
-import { PageHead, Tabs, useLoad, useToast, Loading, ErrorBox, Empty, ReasonDialog, EditDialog, HistoryDialog, AdjustedMark } from '../components/ui';
+import { fmtDate, money, r2, today } from '../lib/format';
+import { PageHead, Tabs, useLoad, useToast, Loading, ErrorBox, Empty, ReasonDialog } from '../components/ui';
 
 export type ChequeRec = { id: string; received_date: string; bank: string | null; cheque_no: string | null; payer: string | null; amount: number; posting_id: string | null; banking_id: string | null; status: string; bounced: boolean; against_pos: boolean; created_at: string; updated_at: string };
 type Lot = { id: string; received_date: string; amount: number; count_id: string | null; entry_id: string | null; posting_id: string | null };
 type PostingRec = { id: string; ref: number; posting_date: string; kind: 'cheque' | 'voucher'; fee_fixed: number; fee_pct: number; banking_id: string | null; note: string | null };
 
 export default function PostingPage() {
-  const [tab, setTab] = useState<'new' | 'list' | 'cheques'>('new');
+  const [tab, setTab] = useState<'new' | 'list'>('new');
   return (
     <>
       <PageHead title="Posting" sub="Cheques taken to the bank and vouchers sent to the voucher company. They stay “posted” until you record them as banked." />
-      <Tabs value={tab} onChange={setTab} items={[['new', 'New posting'], ['list', 'Postings'], ['cheques', 'Cheque register']]} />
-      {tab === 'new' ? <NewPosting onDone={() => setTab('list')} /> : tab === 'list' ? <PostingList /> : <ChequeRegister />}
+      <Tabs value={tab} onChange={setTab} items={[['new', 'New posting'], ['list', 'Postings']]} />
+      <p className="small muted">Cheques and vouchers one by one, with where each one is now, are on the Records page.</p>
+      {tab === 'new' ? <NewPosting onDone={() => setTab('list')} /> : <PostingList />}
     </>
   );
 }
@@ -112,50 +113,6 @@ function PostingList() {
     {voiding && <ReasonDialog title={`Void posting #${voiding.ref}`} danger confirm="Void posting" onCancel={() => setVoiding(null)}
       prompt="Everything in this posting goes back to the office, ready to post again."
       onConfirm={async reason => { await rpc('void_posting', { p_id: voiding.id, p_reason: reason }); setVoiding(null); data.reload(); toast('Posting voided.'); }} />}
-    </section>
-  );
-}
-
-export function ChequeRegister() {
-  const toast = useToast();
-  const [filter, setFilter] = useState<'office' | 'posted' | 'banked' | 'all'>('posted');
-  const list = useLoad(async () => {
-    let qy = supabase.from('cheques').select('*').eq('voided', false).order('received_date', { ascending: false }).limit(300);
-    if (filter === 'banked') qy = qy.in('status', ['banked', 'bounced', 'minus']); else if (filter !== 'all') qy = qy.eq('status', filter);
-    return q(qy) as Promise<ChequeRec[]>;
-  }, [filter]);
-  const [act, setAct] = useState<{ c: ChequeRec; kind: 'return' | 'bounce' } | null>(null);
-  const [edit, setEdit] = useState<ChequeRec | null>(null); const [hist, setHist] = useState<ChequeRec | null>(null);
-  return (
-    <section className="card">
-      <div className="row between wrap-row">
-        <Tabs value={filter} onChange={setFilter} items={[['office', 'In office'], ['posted', 'Posted'], ['banked', 'Banked'], ['all', 'All']]} />
-        <span className="muted small">Returned = sent back before banking, goes back to be posted again. Bounced = unpaid after banking, adds a minus cheque.</span>
-      </div>
-      {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : !list.data?.length ? <Empty>No cheques here.</Empty> : (
-        <div className="table-wrap"><table>
-          <thead><tr><th>Received</th><th>Name</th><th>Bank</th><th>Cheque no.</th><th className="r">Amount</th><th>Status</th><th /></tr></thead>
-          <tbody>{list.data.map(c => (
-            <tr key={c.id}><td className="nowrap">{fmtShort(c.received_date)} <AdjustedMark row={c} onClick={() => setHist(c)} /></td><td>{c.payer}</td><td>{c.bank}</td><td>{c.cheque_no}</td>
-              <td className="r num">{money(c.amount)}</td>
-              <td><span className={`chip ${c.status === 'banked' ? 'ok' : c.status === 'bounced' || c.status === 'minus' ? 'short' : 'pending'}`}>{c.status === 'minus' ? 'minus line for bounce' : c.status === 'office' ? 'in office' : c.status}</span></td>
-              <td className="nowrap">
-                {c.status === 'posted' && <button className="ghost small" onClick={() => setAct({ c, kind: 'return' })}>Returned</button>}
-                {c.status === 'banked' && <button className="ghost small" onClick={() => setAct({ c, kind: 'bounce' })}>Bounced</button>}
-                {c.status !== 'minus' && <button className="ghost small" onClick={() => setEdit(c)}>Adjust</button>}
-              </td></tr>
-          ))}</tbody>
-        </table></div>
-      )}
-      {act && <ReasonDialog title={act.kind === 'return' ? 'Cheque returned before banking' : 'Cheque bounced'} danger={act.kind === 'bounce'}
-        confirm={act.kind === 'return' ? 'Mark returned' : 'Mark bounced'} onCancel={() => setAct(null)}
-        prompt={act.kind === 'return'
-          ? <>{money(act.c.amount)} from {act.c.payer || 'this customer'} comes off its posting and goes back to “in office”, ready to post again.</>
-          : <>{money(act.c.amount)} from {act.c.payer || 'this customer'} is marked bounced and a minus cheque of {money(-act.c.amount)} is added on {fmtDate(act.c.received_date)}. That day will stop matching Semtek until you enter the minus cheque in Semtek too.</>}
-        onConfirm={async reason => { await rpc(act.kind === 'return' ? 'return_cheque' : 'bounce_cheque', { p_id: act.c.id, p_reason: reason }); setAct(null); list.reload(); toast(act.kind === 'return' ? 'Cheque back in the office.' : 'Cheque marked bounced.'); }} />}
-      {edit && <EditDialog table="cheques" row={edit} title="Adjust cheque" onClose={() => setEdit(null)} onSaved={() => { setEdit(null); list.reload(); }}
-        fields={[{ key: 'received_date', label: 'Received', type: 'date' }, { key: 'payer', label: 'Name', type: 'text' }, { key: 'bank', label: 'Bank', type: 'text' }, { key: 'cheque_no', label: 'Cheque no.', type: 'text' }, { key: 'amount', label: 'Amount £', type: 'number' }, { key: 'against_pos', label: 'Should be in Semtek', type: 'bool' }]} />}
-      {hist && <HistoryDialog table="cheques" id={hist.id} title="Cheque history" onClose={() => setHist(null)} />}
     </section>
   );
 }
