@@ -81,6 +81,7 @@ export function VoucherRegister() {
   const list = useLoad(() => q(supabase.from('voucher_lots').select('*, postings(ref,posting_date,fee_fixed,fee_pct,bankings(ref,banking_date)), counts(*), entries(*)').eq('voided', false).order('received_date', { ascending: false }).limit(2000)) as Promise<LotRow[]>, []);
   const [hist, setHist] = useState<LotRow | null>(null);
   const [adj, setAdj] = useState<LotRow | null>(null);
+  const [redate, setRedate] = useState<LotRow | null>(null);
   const all = list.data ?? [];
   const group = (v: LotRow): Status => (!v.postings ? 'office' : v.postings.bankings ? 'banked' : 'posted');
   const counts = { office: all.filter(v => group(v) === 'office').length, posted: all.filter(v => group(v) === 'posted').length, banked: all.filter(v => group(v) === 'banked').length, all: all.length };
@@ -102,7 +103,7 @@ export function VoucherRegister() {
                 <td className="nowrap small">{p ? `#${p.ref} · ${fmtShort(p.posting_date)}` : ''}</td>
                 <td className="r num small">{fee ? money(fee) : ''}</td>
                 <td className="nowrap small">{p?.bankings ? `#${p.bankings.ref} · ${fmtShort(p.bankings.banking_date!)}` : ''}</td>
-                <td><button className="ghost small" onClick={() => setAdj(v)}>Adjust</button></td></tr>);
+                <td className="nowrap">{v.counts && <button className="ghost small" onClick={() => setRedate(v)}>Change date</button>}<button className="ghost small" onClick={() => setAdj(v)}>{v.counts ? 'Adjust counts' : 'Adjust'}</button></td></tr>);
           })}</tbody>
           <tfoot><tr><th colSpan={2}>{rows.length} item{rows.length === 1 ? '' : 's'}</th><td className="r num">{money(total)}</td><td colSpan={5} /></tr></tfoot>
         </table></div></section>
@@ -113,6 +114,8 @@ export function VoucherRegister() {
         fields={[{ key: 'entry_date', label: 'Date', type: 'date' }, { key: 'amount', label: 'Amount £', type: 'number' }]} />}
       {adj && !adj.counts && !adj.entries && <EditDialog table="voucher_lots" row={adj as unknown as Record<string, unknown>} title="Adjust opening vouchers" onClose={() => setAdj(null)} onSaved={() => { setAdj(null); list.reload(); }}
         fields={[{ key: 'received_date', label: 'In the office on', type: 'date' }, { key: 'amount', label: 'Amount £', type: 'number' }]} />}
+      {redate && <EditDialog table="voucher_lots" row={redate as unknown as Record<string, unknown>} title="Change the date these vouchers were received" onClose={() => setRedate(null)} onSaved={() => { setRedate(null); list.reload(); }}
+        fields={[{ key: 'received_date', label: 'Received on', type: 'date' }]} />}
       {hist && <HistoryDialog table="voucher_lots" id={hist.id} title="Voucher history" onClose={() => setHist(null)} />}
     </>
   );
