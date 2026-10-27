@@ -80,12 +80,15 @@ export function DateRange({ from, to, onChange }: { from: string; to: string; on
 // ---------- dialogs ----------
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  // focus the first field once, when the dialog opens (not on every keystroke)
+  useEffect(() => { ref.current?.querySelector<HTMLElement>('input,select,textarea,button')?.focus(); }, []);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRef.current(); };
     window.addEventListener('keydown', k);
-    ref.current?.querySelector<HTMLElement>('input,select,textarea,button')?.focus();
     return () => window.removeEventListener('keydown', k);
-  }, [onClose]);
+  }, []);
   return (
     <div className="modal-back" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-label={title} ref={ref}>
