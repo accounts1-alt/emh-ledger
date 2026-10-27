@@ -13,7 +13,7 @@ type ChequeRow = {
 type LotRow = {
   id: string; received_date: string; amount: number; opening: boolean; count_id: string | null; entry_id: string | null; posting_id: string | null; against_pos: boolean;
   postings: { ref: number; posting_date: string; fee_fixed: number; fee_pct: number; bankings: Ref } | null;
-  counts: { ref: number } | null; entries: { ref: number } | null; created_at: string; updated_at: string;
+  counts: ({ ref: number; id: string } & Record<string, unknown>) | null; entries: ({ ref: number; id: string } & Record<string, unknown>) | null; created_at: string; updated_at: string;
 };
 
 const chip = (status: string) => {
@@ -78,8 +78,9 @@ export function ChequeRegister() {
 
 export function VoucherRegister() {
   const [filter, setFilter] = useState<Status>('office');
-  const list = useLoad(() => q(supabase.from('voucher_lots').select('*, postings(ref,posting_date,fee_fixed,fee_pct,bankings(ref,banking_date)), counts(ref), entries(ref)').eq('voided', false).order('received_date', { ascending: false }).limit(2000)) as Promise<LotRow[]>, []);
+  const list = useLoad(() => q(supabase.from('voucher_lots').select('*, postings(ref,posting_date,fee_fixed,fee_pct,bankings(ref,banking_date)), counts(*), entries(*)').eq('voided', false).order('received_date', { ascending: false }).limit(2000)) as Promise<LotRow[]>, []);
   const [hist, setHist] = useState<LotRow | null>(null);
+  const [adj, setAdj] = useState<LotRow | null>(null);
   const all = list.data ?? [];
   const group = (v: LotRow): Status => (!v.postings ? 'office' : v.postings.bankings ? 'banked' : 'posted');
   const counts = { office: all.filter(v => group(v) === 'office').length, posted: all.filter(v => group(v) === 'posted').length, banked: all.filter(v => group(v) === 'banked').length, all: all.length };
@@ -88,10 +89,10 @@ export function VoucherRegister() {
   return (
     <>
       <div className="row wrap-row toolbar"><StatusTabs value={filter} onChange={setFilter} counts={counts} /></div>
-      <p className="small muted">Vouchers are kept as one amount per count or entry. To change an amount, adjust the count or entry it came from.</p>
+      <p className="small muted">Vouchers are kept as one amount per count or entry. Adjust changes them where they were recorded: the voucher counts on the weekly count, the entry, or the opening balance.</p>
       {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : !rows.length ? <Empty>No vouchers here.</Empty> : (
         <section className="card flush"><div className="table-wrap"><table>
-          <thead><tr><th>Received</th><th>From</th><th className="r">Amount</th><th>Status</th><th>Posted</th><th className="r">Fee</th><th>Banked</th></tr></thead>
+          <thead><tr><th>Received</th><th>From</th><th className="r">Amount</th><th>Status</th><th>Posted</th><th className="r">Fee</th><th>Banked</th><th /></tr></thead>
           <tbody>{rows.map(v => {
             const p = v.postings; const fee = p ? Number(p.fee_fixed) + Number(v.amount) * Number(p.fee_pct) / 100 : null;
             return (
@@ -100,11 +101,18 @@ export function VoucherRegister() {
                 <td className="r num">{money(v.amount)}</td><td>{chip(group(v))}</td>
                 <td className="nowrap small">{p ? `#${p.ref} · ${fmtShort(p.posting_date)}` : ''}</td>
                 <td className="r num small">{fee ? money(fee) : ''}</td>
-                <td className="nowrap small">{p?.bankings ? `#${p.bankings.ref} · ${fmtShort(p.bankings.banking_date!)}` : ''}</td></tr>);
+                <td className="nowrap small">{p?.bankings ? `#${p.bankings.ref} · ${fmtShort(p.bankings.banking_date!)}` : ''}</td>
+                <td><button className="ghost small" onClick={() => setAdj(v)}>Adjust</button></td></tr>);
           })}</tbody>
-          <tfoot><tr><th colSpan={2}>{rows.length} item{rows.length === 1 ? '' : 's'}</th><td className="r num">{money(total)}</td><td colSpan={4} /></tr></tfoot>
+          <tfoot><tr><th colSpan={2}>{rows.length} item{rows.length === 1 ? '' : 's'}</th><td className="r num">{money(total)}</td><td colSpan={5} /></tr></tfoot>
         </table></div></section>
       )}
+      {adj && adj.counts && <EditDialog table="counts" row={adj.counts} title={`Adjust vouchers on weekly count #${adj.counts.ref}`} onClose={() => setAdj(null)} onSaved={() => { setAdj(null); list.reload(); }}
+        fields={[{ key: 'v5', label: '£5 vouchers (count)', type: 'int' }, { key: 'v10', label: '£10 vouchers (count)', type: 'int' }, { key: 'v20', label: '£20 vouchers (count)', type: 'int' }, { key: 'v50', label: '£50 vouchers (count)', type: 'int' }]} />}
+      {adj && !adj.counts && adj.entries && <EditDialog table="entries" row={adj.entries} title={`Adjust entry #${adj.entries.ref}`} onClose={() => setAdj(null)} onSaved={() => { setAdj(null); list.reload(); }}
+        fields={[{ key: 'entry_date', label: 'Date', type: 'date' }, { key: 'amount', label: 'Amount £', type: 'number' }]} />}
+      {adj && !adj.counts && !adj.entries && <EditDialog table="voucher_lots" row={adj as unknown as Record<string, unknown>} title="Adjust opening vouchers" onClose={() => setAdj(null)} onSaved={() => { setAdj(null); list.reload(); }}
+        fields={[{ key: 'received_date', label: 'In the office on', type: 'date' }, { key: 'amount', label: 'Amount £', type: 'number' }]} />}
       {hist && <HistoryDialog table="voucher_lots" id={hist.id} title="Voucher history" onClose={() => setHist(null)} />}
     </>
   );
