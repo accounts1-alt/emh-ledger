@@ -1,10 +1,12 @@
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { all, supabase } from '../lib/supabase';
 import { loadCompare, latestSemtekDate, loadCategories, inCategoryOptions, type CompareData } from '../lib/data';
 import { addDays, type DayRow, type Figure, type BacsMatch } from '../lib/recon';
 import { fmtDate, fmtRange, fmtShort, money, today, MERCHANT_LABEL } from '../lib/format';
 import { PageHead, DateRange, useLoad, Loading, ErrorBox, Modal, Empty, Tabs, EditDialog, type FieldDef } from '../components/ui';
 import { exportSheet } from '../lib/exporter';
+import { DataGrid } from '../components/DataGrid';
+import { semtekCols, cardCols } from '../components/columns';
 import { CONF } from './Records';
 
 type Kind = 'cash' | 'cheque' | 'vouchers' | 'cards' | 'bacs';
@@ -160,7 +162,7 @@ type SemLine = { id: string; txn_date: string; txn_at: string | null; type: stri
 
 function DayDetail({ day, data, onClose, onChanged }: { day: DayRow; data: CompareData; onClose: () => void; onChanged: () => void }) {
   const cash = data.days.find(d => d.date === day.cashFrom)?.cash ?? null;
-  const lines = useLoad(() => all((a, b) => supabase.from('semtek_lines').select('id,txn_date,txn_at,type,last_name,account_no,cash,cheque,credit_card,vouchers,bacs,on_account,manual')
+  const lines = useLoad(() => all((a, b) => supabase.from('semtek_lines').select('id,txn_date,txn_at,type,station,operator,last_name,account_no,cash,cheque,credit_card,vouchers,bacs,on_account,manual,created_at,updated_at')
     .eq('voided', false).gte('txn_date', day.cashFrom < day.date ? day.cashFrom : day.date).lte('txn_date', day.cashTo > day.date ? day.cashTo : day.date).order('txn_at').range(a, b)) as Promise<SemLine[]>, [day.date, day.cashFrom, day.cashTo]);
   const editor = useLineEditor(() => { onChanged(); lines.reload(); });
   const merch: Record<string, number> = data.cardsByDay.get(day.date) ?? {};
@@ -169,6 +171,8 @@ function DayDetail({ day, data, onClose, onChanged }: { day: DayRow; data: Compa
   const chqOpen = data.cheques.filter(m => onDay(m) && (!m.bank || !m.semtek));
   const bacsOpen = data.bacs.filter(m => onDay(m) && (!m.bank || !m.semtek));
   const dayLines = (lines.data ?? []).filter(l => l.txn_date === day.date);
+  const dayCards = [...data.cardRows.values()].filter(c => c.txn_date === day.date) as unknown as (Record<string, unknown> & { id: string })[];
+  const cats = useLoad(loadCategories, []);
   const cashLines = (lines.data ?? []).filter(l => l.txn_date >= day.cashFrom && l.txn_date <= day.cashTo);
   // Semtek lines of exactly the difference: the likely cause of a cash or voucher difference
   const suspects = (f: Figure | null, key: 'cash' | 'vouchers', pool: SemLine[]) =>
@@ -210,20 +214,14 @@ function DayDetail({ day, data, onClose, onChanged }: { day: DayRow; data: Compa
         {bacsOpen.length > 0 && <><h3>BACS that doesn't pair up</h3><MatchTable data={bacsOpen} left="BACS report" onRight={id => editor.open('semtek_lines', id)} /></>}
 
         <h3>All Semtek transactions on {fmtShort(day.date)}</h3>
-        {lines.loading ? <Loading /> : lines.error ? <ErrorBox error={lines.error} /> : !dayLines.length ? <p className="small muted">None.</p> : (
-          <div className="table-wrap"><table className="mini wide">
-            <thead><tr><th>Time</th><th>Type</th><th>Customer</th><th className="r">Cash</th><th className="r">Cheque</th><th className="r">Card</th><th className="r">Vouchers</th><th className="r">BACS</th><th className="r">On account</th><th /></tr></thead>
-            <tbody>{dayLines.map(l => (
-              <Fragment key={l.id}><tr>
-                <td className="small">{String(l.txn_at ?? '').slice(11, 16)}</td><td className="small">{l.type}{l.manual ? ' (by hand)' : ''}</td>
-                <td className="small wrap">{[l.last_name, l.account_no].filter(Boolean).join(', ')}</td>
-                {(['cash', 'cheque', 'credit_card', 'vouchers', 'bacs', 'on_account'] as const).map(k => <td key={k} className="r num small">{money(Number(l[k]), { blankZero: true })}</td>)}
-                <td><button className="ghost small" onClick={() => editor.open('semtek_lines', l.id)}>Adjust</button></td>
-              </tr></Fragment>
-            ))}</tbody>
-            <tfoot><tr><th colSpan={3}>Total</th>{(['cash', 'cheque', 'credit_card', 'vouchers', 'bacs', 'on_account'] as const).map(k => <td key={k} className="r num small">{money(dayLines.reduce((s, l) => s + Number(l[k]), 0))}</td>)}<td /></tr></tfoot>
-          </table></div>
+        {lines.loading ? <Loading /> : lines.error ? <ErrorBox error={lines.error} /> : (
+          <DataGrid rows={dayLines as unknown as Record<string, unknown>[] as (Record<string, unknown> & { id: string })[]} rowKey={r => r.id}
+            cols={semtekCols({ withDate: false })} empty="No Semtek lines on this day."
+            actions={r => <button className="ghost small" onClick={() => editor.open('semtek_lines', r.id)}>Adjust</button>} />
         )}
+        <h3>All card transactions on {fmtShort(day.date)}</h3>
+        <DataGrid rows={dayCards} rowKey={r => r.id} cols={cardCols(cats.data, { withDate: false })} empty="No card transactions on this day."
+          actions={r => <button className="ghost small" onClick={() => editor.open('card_txns', r.id)}>Adjust</button>} />
         {editor.dialog}
       </div>
     </Modal>

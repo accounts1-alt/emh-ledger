@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { all, q, supabase } from '../lib/supabase';
 
-import { fmtShort, money, today, MERCHANT_LABEL } from '../lib/format';
-import { PageHead, Tabs, DateRange, useLoad, useToast, Loading, ErrorBox, Empty, EditDialog, ReasonDialog, HistoryDialog, AdjustedMark, Modal, type FieldDef } from '../components/ui';
+import { today } from '../lib/format';
+import { PageHead, Tabs, DateRange, useLoad, useToast, Loading, ErrorBox, Empty, EditDialog, ReasonDialog, HistoryDialog, Modal, type FieldDef } from '../components/ui';
 import { useDefaultRange } from './Compare';
 import { ChequeRegister, VoucherRegister } from './Registers';
-import { loadCategories, inCategoryOptions, categoryName } from '../lib/data';
+import { DataGrid } from '../components/DataGrid';
+import { semtekCols, cardCols, bacsCols } from '../components/columns';
+import { loadCategories, inCategoryOptions } from '../lib/data';
 
 type Tab = 'semtek' | 'cards' | 'bacs' | 'cheques' | 'vouchers';
 type Rec = Record<string, unknown> & { id: string; created_at: string; updated_at: string; voided: boolean };
@@ -67,35 +69,11 @@ export default function RecordsPage() {
         {tab === 'semtek' && <button className="ghost" onClick={() => setAdding(true)}>+ Add a missing Semtek line</button>}
       </div>
       {list.loading || !list.data ? (list.error ? <ErrorBox error={list.error} /> : <Loading />) : !rows.length ? <Empty>No lines for these dates{s ? ' match your search' : ''}.</Empty> : (
-        <section className="card flush"><div className="table-wrap"><table>
-          {tab === 'semtek' && <>
-            <thead><tr><th>Date</th><th>Time</th><th>Type</th><th>Till</th><th>Customer</th><th className="r">Cash</th><th className="r">Cheque</th><th className="r">Card</th><th className="r">Vouchers</th><th className="r">BACS</th><th className="r">On account</th><th /></tr></thead>
-            <tbody>{rows.map(r => (
-              <tr key={r.id} className={r.voided ? 'voided' : ''}><td className="nowrap">{fmtShort(String(r.txn_date))} <AdjustedMark row={r} onClick={() => setHist(r)} />{r.manual ? <span className="chip muted-chip">added by hand</span> : null}</td>
-                <td className="muted small">{String(r.txn_at ?? '').slice(11, 16)}</td><td>{String(r.type)}</td><td className="muted small">{String(r.station)}</td>
-                <td className="wrap">{String(r.last_name ?? '')}<div className="muted small">{String(r.account_no ?? '')}</div></td>
-                {['cash', 'cheque', 'credit_card', 'vouchers', 'bacs', 'on_account'].map(k => <td key={k} className="r num">{money(Number(r[k]), { blankZero: true })}</td>)}
-                <td className="nowrap">{!r.voided && <><button className="ghost small" onClick={() => setEdit(r)}>Adjust</button><button className="ghost small" onClick={() => setVoiding(r)}>Void</button></>}</td></tr>))}</tbody>
-            <tfoot><tr><th colSpan={5}>Total ({rows.filter(r => !r.voided).length} lines)</th>{['cash', 'cheque', 'credit_card', 'vouchers', 'bacs', 'on_account'].map(k => <td key={k} className="r num">{money(rows.filter(r => !r.voided).reduce((x, r) => x + Number(r[k]), 0))}</td>)}<td /></tr></tfoot>
-          </>}
-          {tab === 'cards' && <>
-            <thead><tr><th>Date</th><th>Time</th><th>Provider</th><th>Customer / card</th><th>Category</th><th className="r">Amount</th><th className="r">Fee</th><th className="r">Net</th><th>Banked</th><th /></tr></thead>
-            <tbody>{rows.map(r => (
-              <tr key={r.id} className={r.voided ? 'voided' : ''}><td className="nowrap">{fmtShort(String(r.txn_date))} <AdjustedMark row={r} onClick={() => setHist(r)} /></td><td className="muted small">{String(r.txn_at ?? '').slice(11, 16)}</td>
-                <td>{MERCHANT_LABEL[String(r.merchant)]}</td><td className="wrap">{String(r.customer || '')}{r.card_last4 ? <span className="muted small"> ****{String(r.card_last4)} {String(r.card_scheme ?? '')}</span> : null}</td><td className="small">{categoryName(cats.data, r.category_id)}{r.against_pos === false ? <span className="muted"> · not in Semtek</span> : null}</td>
-                <td className="r num">{money(Number(r.amount))}</td><td className="r num">{money(Number(r.fee), { blankZero: true })}</td><td className="r num">{money(Number(r.net))}</td>
-                <td>{r.banking_id ? <span className="chip ok">banked</span> : <span className="chip pending">waiting</span>}</td>
-                <td className="nowrap">{!r.voided && <><button className="ghost small" onClick={() => setEdit(r)}>Adjust</button><button className="ghost small" onClick={() => setVoiding(r)}>Void</button></>}</td></tr>))}</tbody>
-            <tfoot><tr><th colSpan={5}>Total</th>{['amount', 'fee', 'net'].map(k => <td key={k} className="r num">{money(rows.filter(r => !r.voided).reduce((x, r) => x + Number(r[k]), 0))}</td>)}<td colSpan={2} /></tr></tfoot>
-          </>}
-          {tab === 'bacs' && <>
-            <thead><tr><th>Date</th><th>Description</th><th>Category</th><th className="r">Amount</th><th /></tr></thead>
-            <tbody>{rows.map(r => (
-              <tr key={r.id} className={r.voided ? 'voided' : ''}><td className="nowrap">{fmtShort(String(r.txn_date))} <AdjustedMark row={r} onClick={() => setHist(r)} /></td><td>{String(r.description)}</td><td className="small">{categoryName(cats.data, r.category_id)}</td><td className="r num">{money(Number(r.amount))}</td>
-                <td className="nowrap">{!r.voided && <><button className="ghost small" onClick={() => setEdit(r)}>Adjust</button><button className="ghost small" onClick={() => setVoiding(r)}>Void</button></>}</td></tr>))}</tbody>
-            <tfoot><tr><th colSpan={3}>Total</th><td className="r num">{money(rows.filter(r => !r.voided).reduce((x, r) => x + Number(r.amount), 0))}</td><td /></tr></tfoot>
-          </>}
-        </table></div></section>
+        <section className="card flush">
+          <DataGrid rows={rows} rowKey={r => r.id} rowClass={r => (r.voided ? 'voided' : '')}
+            cols={tab === 'semtek' ? semtekCols({ onHist: r => setHist(r as Rec) }) : tab === 'cards' ? cardCols(cats.data, { onHist: r => setHist(r as Rec) }) : bacsCols(cats.data, { onHist: r => setHist(r as Rec) })}
+            actions={r => !r.voided && <><button className="ghost small" onClick={() => setEdit(r)}>Adjust</button><button className="ghost small" onClick={() => setVoiding(r)}>Void</button></>} />
+        </section>
       )}
       </>}
       {edit && <EditDialog table={c.table} row={edit} fields={editFields(edit)} title="Adjust line" onClose={() => setEdit(null)} onSaved={() => { setEdit(null); list.reload(); }} />}

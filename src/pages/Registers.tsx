@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { q, rpc, supabase } from '../lib/supabase';
 import { fmtShort, money } from '../lib/format';
 import { loadCategories, inCategoryOptions, categoryName } from '../lib/data';
+import { DataGrid } from '../components/DataGrid';
 import { Tabs, useLoad, useToast, Loading, ErrorBox, Empty, ReasonDialog, EditDialog, HistoryDialog, AdjustedMark } from '../components/ui';
 
 type Status = 'office' | 'posted' | 'banked' | 'all';
@@ -40,30 +41,33 @@ export function ChequeRegister() {
   const counts = { office: all.filter(c => group(c) === 'office').length, posted: all.filter(c => group(c) === 'posted').length, banked: all.filter(c => group(c) === 'banked').length, all: all.length };
   const s = search.trim().toLowerCase();
   const rows = all.filter(c => (filter === 'all' || group(c) === filter) && (!s || [c.payer, c.bank, c.cheque_no, String(c.amount)].some(v => String(v ?? '').toLowerCase().includes(s))));
-  const total = rows.reduce((x, c) => x + Number(c.amount), 0);
   return (
     <>
       <div className="row wrap-row toolbar"><StatusTabs value={filter} onChange={setFilter} counts={counts} />
         <input id="chq-search" className="search" placeholder="Search name, bank, cheque no., amount…" value={search} onChange={e => setSearch(e.target.value)} /></div>
       <p className="small muted">Returned = sent back before banking; it goes back to “in office” to be posted again. Bounced = unpaid after banking; a minus cheque is added on the day it was received.</p>
       {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : !rows.length ? <Empty>No cheques here.</Empty> : (
-        <section className="card flush"><div className="table-wrap"><table>
-          <thead><tr><th>Received</th><th>Name</th><th>Bank</th><th>Cheque no.</th><th>Category</th><th>From</th><th className="r">Amount</th><th>Status</th><th>Posted</th><th>Banked</th><th /></tr></thead>
-          <tbody>{rows.map(c => (
-            <tr key={c.id}><td className="nowrap">{fmtShort(c.received_date)} <AdjustedMark row={c} onClick={() => setHist(c)} /></td>
-              <td>{c.payer}</td><td>{c.bank}</td><td>{c.cheque_no}</td><td className="small">{categoryName(cats.data, c.category_id)}</td>
-              <td className="small muted">{c.opening ? 'Opening balance' : c.count_id ? 'Weekly count' : c.entry_id ? 'Entry' : ''}{!c.against_pos && !c.opening ? ' · separate' : ''}</td>
-              <td className="r num">{money(c.amount)}</td><td>{chip(c.status)}</td>
-              <td className="nowrap small">{c.postings ? `#${c.postings.ref} · ${fmtShort(c.postings.posting_date!)}` : ''}</td>
-              <td className="nowrap small">{c.bankings ? `#${c.bankings.ref} · ${fmtShort(c.bankings.banking_date!)}` : ''}</td>
-              <td className="nowrap">
-                {c.status === 'posted' && <button className="ghost small" onClick={() => setAct({ c, kind: 'return' })}>Returned</button>}
-                {c.status === 'banked' && <button className="ghost small" onClick={() => setAct({ c, kind: 'bounce' })}>Bounced</button>}
-                {c.status !== 'minus' && <button className="ghost small" onClick={() => setEdit(c)}>Adjust</button>}
-              </td></tr>
-          ))}</tbody>
-          <tfoot><tr><th colSpan={6}>{rows.length} cheque{rows.length === 1 ? '' : 's'}</th><td className="r num">{money(total)}</td><td colSpan={4} /></tr></tfoot>
-        </table></div></section>
+        <section className="card flush">
+          <DataGrid rows={rows} rowKey={c => c.id} initialSort={{ key: 'received', dir: 'desc' }} footerLabel={n => `${n} cheque${n === 1 ? '' : 's'}`}
+            cols={[
+              { key: 'received', label: 'Received', kind: 'date', value: c => c.received_date, text: c => fmtShort(c.received_date),
+                render: c => <span className="nowrap">{fmtShort(c.received_date)} <AdjustedMark row={c} onClick={() => setHist(c)} /></span> },
+              { key: 'payer', label: 'Name', value: c => c.payer ?? '' },
+              { key: 'bank', label: 'Bank', value: c => c.bank ?? '' },
+              { key: 'cheque_no', label: 'Cheque no.', value: c => c.cheque_no ?? '' },
+              { key: 'category', label: 'Category', value: c => categoryName(cats.data, c.category_id) },
+              { key: 'from', label: 'From', value: c => (c.opening ? 'Opening balance' : c.count_id ? 'Weekly count' : c.entry_id ? 'Entry' : '') + (!c.against_pos && !c.opening ? ' · separate' : '') },
+              { key: 'amount', label: 'Amount', kind: 'money', value: c => Number(c.amount), total: true },
+              { key: 'status', label: 'Status', value: c => (c.status === 'office' ? 'in office' : c.status === 'minus' ? 'minus line for bounce' : c.status), render: c => chip(c.status) },
+              { key: 'posted', label: 'Posted', value: c => (c.postings ? `#${c.postings.ref} · ${fmtShort(c.postings.posting_date!)}` : '') },
+              { key: 'banked', label: 'Banked', value: c => (c.bankings ? `#${c.bankings.ref} · ${fmtShort(c.bankings.banking_date!)}` : '') },
+            ]}
+            actions={c => <>
+              {c.status === 'posted' && <button className="ghost small" onClick={() => setAct({ c, kind: 'return' })}>Returned</button>}
+              {c.status === 'banked' && <button className="ghost small" onClick={() => setAct({ c, kind: 'bounce' })}>Bounced</button>}
+              {c.status !== 'minus' && <button className="ghost small" onClick={() => setEdit(c)}>Adjust</button>}
+            </>} />
+        </section>
       )}
       {act && <ReasonDialog title={act.kind === 'return' ? 'Cheque returned before banking' : 'Cheque bounced'} danger={act.kind === 'bounce'}
         confirm={act.kind === 'return' ? 'Mark returned' : 'Mark bounced'} onCancel={() => setAct(null)}
@@ -88,28 +92,26 @@ export function VoucherRegister() {
   const group = (v: LotRow): Status => (!v.postings ? 'office' : v.postings.bankings ? 'banked' : 'posted');
   const counts = { office: all.filter(v => group(v) === 'office').length, posted: all.filter(v => group(v) === 'posted').length, banked: all.filter(v => group(v) === 'banked').length, all: all.length };
   const rows = all.filter(v => filter === 'all' || group(v) === filter);
-  const total = rows.reduce((x, v) => x + Number(v.amount), 0);
   return (
     <>
       <div className="row wrap-row toolbar"><StatusTabs value={filter} onChange={setFilter} counts={counts} /></div>
       <p className="small muted">Vouchers are kept as one amount per count or entry. Adjust changes the date and amount of a line directly; the change is kept in its history.</p>
       {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : !rows.length ? <Empty>No vouchers here.</Empty> : (
-        <section className="card flush"><div className="table-wrap"><table>
-          <thead><tr><th>Received</th><th>From</th><th>Category</th><th className="r">Amount</th><th>Status</th><th>Posted</th><th className="r">Fee</th><th>Banked</th><th /></tr></thead>
-          <tbody>{rows.map(v => {
-            const p = v.postings; const fee = p ? Number(p.fee_fixed) + Number(v.amount) * Number(p.fee_pct) / 100 : null;
-            return (
-              <tr key={v.id}><td className="nowrap">{fmtShort(v.received_date)} <AdjustedMark row={v} onClick={() => setHist(v)} /></td>
-                <td className="small">{v.opening ? 'Opening balance' : v.counts ? `Weekly count #${v.counts.ref}` : v.entries ? `Entry #${v.entries.ref}` : ''}</td>
-                <td className="small">{categoryName(cats.data, v.category_id)}</td>
-                <td className="r num">{money(v.amount)}</td><td>{chip(group(v))}</td>
-                <td className="nowrap small">{p ? `#${p.ref} · ${fmtShort(p.posting_date)}` : ''}</td>
-                <td className="r num small">{fee ? money(fee) : ''}</td>
-                <td className="nowrap small">{p?.bankings ? `#${p.bankings.ref} · ${fmtShort(p.bankings.banking_date!)}` : ''}</td>
-                <td><button className="ghost small" onClick={() => setAdj(v)}>Adjust</button></td></tr>);
-          })}</tbody>
-          <tfoot><tr><th colSpan={3}>{rows.length} item{rows.length === 1 ? '' : 's'}</th><td className="r num">{money(total)}</td><td colSpan={5} /></tr></tfoot>
-        </table></div></section>
+        <section className="card flush">
+          <DataGrid rows={rows} rowKey={v => v.id} initialSort={{ key: 'received', dir: 'desc' }} footerLabel={n => `${n} item${n === 1 ? '' : 's'}`}
+            cols={[
+              { key: 'received', label: 'Received', kind: 'date', value: v => v.received_date, text: v => fmtShort(v.received_date),
+                render: v => <span className="nowrap">{fmtShort(v.received_date)} <AdjustedMark row={v} onClick={() => setHist(v)} /></span> },
+              { key: 'from', label: 'From', value: v => (v.opening ? 'Opening balance' : v.counts ? `Weekly count #${v.counts.ref}` : v.entries ? `Entry #${v.entries.ref}` : '') },
+              { key: 'category', label: 'Category', value: v => categoryName(cats.data, v.category_id) },
+              { key: 'amount', label: 'Amount', kind: 'money', value: v => Number(v.amount), total: true },
+              { key: 'status', label: 'Status', value: v => (group(v) === 'office' ? 'in office' : group(v)), render: v => chip(group(v)) },
+              { key: 'posted', label: 'Posted', value: v => (v.postings ? `#${v.postings.ref} · ${fmtShort(v.postings.posting_date)}` : '') },
+              { key: 'fee', label: 'Fee', kind: 'money', total: true, value: v => (v.postings ? Number(v.postings.fee_fixed) + Number(v.amount) * Number(v.postings.fee_pct) / 100 : 0) },
+              { key: 'banked', label: 'Banked', value: v => (v.postings?.bankings ? `#${v.postings.bankings.ref} · ${fmtShort(v.postings.bankings.banking_date!)}` : '') },
+            ]}
+            actions={v => <button className="ghost small" onClick={() => setAdj(v)}>Adjust</button>} />
+        </section>
       )}
       {adj && <EditDialog table="voucher_lots" row={adj as unknown as Record<string, unknown>} title="Adjust vouchers" onClose={() => setAdj(null)} onSaved={() => { setAdj(null); list.reload(); }}
         fields={[{ key: 'received_date', label: 'Received on', type: 'date' }, { key: 'amount', label: 'Amount £', type: 'number' }, { key: 'category_id', label: 'Category', type: 'select', options: inCategoryOptions(cats.data, adj.category_id) }, { key: 'against_pos', label: 'Should be in Semtek', type: 'bool' }]} />}

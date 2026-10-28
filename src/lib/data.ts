@@ -34,7 +34,7 @@ export async function loadCompare(from: string, to: string): Promise<CompareData
   const wFrom = addDays(from, -7), wTo = addDays(to, 7);
   const [semtek, cards, counts, floats, cheques, vouchers, entries, bacsLines, semLines, coverage, settings] = await Promise.all([
     q(supabase.from('v_semtek_daily').select('*').gte('txn_date', from).lte('txn_date', to)),
-    all((a, b) => supabase.from('card_txns').select('id,txn_date,txn_at,merchant,amount,fee,customer,card_last4,card_scheme,against_pos,category_id,created_at,updated_at').eq('voided', false).gte('txn_date', from).lte('txn_date', to).range(a, b)),
+    all((a, b) => supabase.from('card_txns').select('id,txn_date,txn_at,merchant,amount,fee,net,customer,card_last4,card_scheme,against_pos,category_id,banking_id,created_at,updated_at').eq('voided', false).gte('txn_date', from).lte('txn_date', to).range(a, b)),
     q(supabase.from('counts').select('id,ref,date_from,date_to,cash_total,vouchers_total,against_pos').eq('voided', false).lte('date_from', wTo).gte('date_to', wFrom)),
     q(supabase.from('floats').select('id,ref,amount,date_from,date_to,unused').eq('voided', false).lte('date_from', wTo).gte('date_to', wFrom)),
     q(supabase.from('cheques').select('id,received_date,amount,against_pos,payer,cheque_no').eq('voided', false).gte('received_date', from).lte('received_date', to)),
