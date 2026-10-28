@@ -230,3 +230,10 @@ table.cmp td { min-width: 118px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 table.ledger td:first-child, table.ledger th:first-child { white-space: normal; }
+.period { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; max-width: 340px; }
+.period input[type='date'] { width: 140px; padding: 4px 6px; }
+.period .small { flex-basis: 100%; white-space: normal; }
+.span-cell { vertical-align: middle; background: var(--line-2); border-left: 2px solid var(--line); }
+.wait-note { white-space: normal; max-width: 150px; margin-left: auto; line-height: 1.3; margin-top: 2px; }
+.suspects { background: var(--warn-bg); border-radius: 6px; padding: 8px 12px; }
+.suspects ul { margin: 4px 0 0; padding-left: 18px; }

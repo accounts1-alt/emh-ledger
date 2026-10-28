@@ -29,12 +29,14 @@ export default function Dashboard() {
   const cardMerchants = [...new Set(exp('cards').map(e => e.merchant!))];
   const comingTotal = r2(expected.reduce((s, e) => s + Number(e.net), 0));
   const issues: { text: string; href: string }[] = [];
-  for (const g of cmp.groups) {
-    const bad = (['cash', 'cheque', 'vouchers', 'cards', 'bacs'] as const).filter(k => g[k].diff !== null && Math.abs(g[k].diff!) >= 0.01);
-    if (bad.length) issues.push({ text: `${g.from === g.to ? fmtShort(g.from) : `${fmtShort(g.from)}–${fmtShort(g.to)}`}: ${bad.map(k => `${k === 'cheque' ? 'cheques' : k} ${money(g[k].diff, { sign: true })}`).join(', ')}`, href: '#compare' });
+  for (const d of cmp.days) {
+    const figs = ([['cash', d.cash], ['cheques', d.cheque], ['vouchers', d.vouchers], ['cards', d.cards], ['BACS', d.bacs]] as const).filter(([, f]) => f && f.status === 'diff');
+    if (figs.length) issues.push({ text: `${d.cash && d.cash.span > 1 && figs.some(([k]) => k === 'cash') ? `${fmtShort(d.cashFrom)}–${fmtShort(d.cashTo)}` : fmtShort(d.date)}: ${figs.map(([k, f]) => `${k} ${money(f!.diff, { sign: true })}`).join(', ')}`, href: '#compare' });
   }
-  const pendingCounts = cmp.groups.filter(g => g.cash.note === 'No count entered yet').length;
+  const pendingCounts = cmp.days.filter(d => d.cash?.note === 'No count entered yet').length;
   if (pendingCounts) issues.push({ text: `${pendingCounts} day${pendingCounts > 1 ? 's' : ''} with Semtek cash but no count entered`, href: '#count' });
+  const cardOpen = cmp.cards.filter(m => !m.bank || !m.semtek).length;
+  if (cardOpen) issues.push({ text: `${cardOpen} card payment${cardOpen > 1 ? 's' : ''} that don't pair up with Semtek`, href: '#compare' });
   const unmatched = cmp.bacs.filter(m => !m.bank || !m.semtek).length;
   if (unmatched) issues.push({ text: `${unmatched} BACS line${unmatched > 1 ? 's' : ''} without a match`, href: '#compare' });
   for (const f of floats) if (f.date_to < addDays(today(), -7)) issues.push({ text: `Float #${f.ref} (${money(f.amount)}, ${fmtShort(f.date_from)}) not counted back`, href: '#floats' });

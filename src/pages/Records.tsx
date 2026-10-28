@@ -10,7 +10,7 @@ import { loadCategories, inCategoryOptions, categoryName } from '../lib/data';
 type Tab = 'semtek' | 'cards' | 'bacs' | 'cheques' | 'vouchers';
 type Rec = Record<string, unknown> & { id: string; created_at: string; updated_at: string; voided: boolean };
 
-const CONF: Record<'semtek' | 'cards' | 'bacs', { table: string; date: string; fields: FieldDef[]; search: string[] }> = {
+export const CONF: Record<'semtek' | 'cards' | 'bacs', { table: string; date: string; fields: FieldDef[]; search: string[] }> = {
   semtek: {
     table: 'semtek_lines', date: 'txn_date', search: ['last_name', 'account_no', 'sale_id', 'operator', 'notes'],
     fields: [{ key: 'txn_date', label: 'Date', type: 'date' }, { key: 'type', label: 'Type', type: 'select', options: [['Sale', 'Sale'], ['Payment', 'Payment']] }, { key: 'last_name', label: 'Customer', type: 'text' },

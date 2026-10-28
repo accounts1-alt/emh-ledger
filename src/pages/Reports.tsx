@@ -5,7 +5,7 @@ import { addDays } from '../lib/recon';
 import { ACCOUNTS, ACCOUNT_LABEL, ENTRY_ACCOUNT_LABEL, MERCHANT_LABEL, fmtDate, fmtShort, money, r2 } from '../lib/format';
 import { PageHead, Tabs, DateRange, useLoad, Loading, ErrorBox, Empty, Diff } from '../components/ui';
 import { exportSheet } from '../lib/exporter';
-import { CompareTable, BacsTable, useDefaultRange } from './Compare';
+import { CompareTable, BacsTable, MatchTable, useDefaultRange } from './Compare';
 import { loadBankings } from './Banking';
 import { FEE_PROVIDER } from './Fees';
 
@@ -35,9 +35,11 @@ function SemtekReport({ from, to }: { from: string; to: string }) {
   return (
     <>
       <ExportBtn onClick={() => exportSheet(`Against Semtek ${from} to ${to}`, [
-        ['From', 'To', ...K.flatMap(k => [`${k} Semtek`, `${k} actual`, `${k} difference`]), 'Missing data'],
-        ...data.groups.map(g => [g.from, g.to, ...K.flatMap(k => [g[k].semtek, g[k].actual ?? '', g[k].diff ?? '']), g.missing.join(', ')])])} />
-      <section className="card flush"><CompareTable groups={data.groups} /></section>
+        ['Date', ...K.flatMap(k => [`${k} Semtek`, `${k} actual`, `${k} difference`, `${k} status`])],
+        ...data.days.map(d => [d.date, ...K.flatMap(k => { const f = k === 'cash' ? d.cash : d[k]; return f ? [f.semtek, f.actual ?? '', f.diff ?? '', f.status] : ['', '', '', `with ${d.cashFrom}`]; })])])} />
+      <section className="card flush"><CompareTable days={data.days} /></section>
+      <h3>Cards line by line (not paired)</h3>
+      <MatchTable data={data.cards} left="card files" emptyText="Every card payment pairs up with Semtek." />
       <h3>BACS line by line</h3>
       <BacsTable data={data.bacs} />
     </>

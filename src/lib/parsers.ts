@@ -250,3 +250,25 @@ export function dateRange(rows: { txn_date: string }[]): [string | null, string 
   for (const r of rows) { if (r.txn_date < lo) lo = r.txn_date; if (r.txn_date > hi) hi = r.txn_date; }
   return [lo, hi];
 }
+
+const MONTHS: Record<string, number> = { january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 };
+/**
+ * The period a file covers, where the file says so: Paymentsense puts it in the file name
+ * ("Transactions_01-10-2026-07-10-2026_…"), the BACS report in its heading ("For the period 1 October 2026 to 7 October 2026").
+ * Otherwise null, and the first/last transaction dates are used.
+ */
+export function guessPeriod(source: Source, buf: ArrayBuffer, filename: string): [string, string] | null {
+  if (source === 'paymentsense') {
+    const m = filename.match(/(\d{2})-(\d{2})-(\d{4})-(\d{2})-(\d{2})-(\d{4})/);
+    if (m) return [`${m[3]}-${m[2]}-${m[1]}`, `${m[6]}-${m[5]}-${m[4]}`];
+  }
+  if (source === 'bacs' && /\.xlsx?$/i.test(filename)) {
+    try {
+      const text = readWorkbookRows(buf).slice(0, 8).flat().map(str).join(' ');
+      const m = text.match(/period\s+(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\s+to\s+(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/i);
+      if (m && MONTHS[m[2].toLowerCase()] && MONTHS[m[5].toLowerCase()])
+        return [`${m[3]}-${pad(MONTHS[m[2].toLowerCase()])}-${pad(+m[1])}`, `${m[6]}-${pad(MONTHS[m[5].toLowerCase()])}-${pad(+m[4])}`];
+    } catch { return null; }
+  }
+  return null;
+}

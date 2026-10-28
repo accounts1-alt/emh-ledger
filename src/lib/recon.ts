@@ -14,12 +14,17 @@ export const CARD_ACCOUNTS = ['paymentsense', 'amex', 'stripe_shop', 'stripe_off
 export const TYPES = ['cash', 'cheque', 'vouchers', 'cards', 'bacs'] as const;
 export type PayType = typeof TYPES[number];
 
-export interface Figure { semtek: number; actual: number | null; diff: number | null; note?: string }
-export interface CompareGroup {
-  from: string; to: string; days: string[];
-  cash: Figure; cheque: Figure; vouchers: Figure; cards: Figure; bacs: Figure;
-  counts: number[]; floats: number[]; floatTotal: number; countTotal: number;
-  missing: string[];
+export type Status = 'match' | 'ok' | 'diff' | 'waiting' | 'none';
+export interface Figure { semtek: number; actual: number | null; diff: number | null; status: Status; note?: string }
+export interface CashCell extends Figure {
+  from: string; to: string; span: number;
+  counts: number[]; floats: number[]; countTotal: number; floatTotal: number; entries: number;
+}
+export interface DayRow {
+  date: string; semtekLoaded: boolean;
+  /** Cash is checked per count/float period; it sits on the first day of that period (span = days it covers). */
+  cash: CashCell | null; cashFrom: string; cashTo: string;
+  cheque: Figure; vouchers: Figure; cards: Figure; bacs: Figure;
 }
 
 export const addDays = (iso: string, n: number) => {
@@ -32,22 +37,42 @@ export function eachDay(from: string, to: string): string[] {
   const out: string[] = []; for (let d = from; d <= to; d = addDays(d, 1)) out.push(d); return out;
 }
 
-const fig = (semtek: number, actual: number | null, note?: string): Figure =>
-  ({ semtek: round2(semtek), actual: actual === null ? null : round2(actual), diff: actual === null ? null : round2(actual - semtek), note });
+function fig(semtek: number, actual: number | null, note?: string, tolerance = 0): Figure {
+  const sm = round2(semtek), ac = actual === null ? null : round2(actual);
+  if (ac === null) return { semtek: sm, actual: null, diff: null, status: sm === 0 ? 'none' : 'waiting', note };
+  const diff = round2(ac - sm);
+  if (sm === 0 && ac === 0) return { semtek: 0, actual: 0, diff: 0, status: 'none', note };
+  const status: Status = Math.abs(diff) < 0.005 ? 'match' : Math.abs(diff) <= tolerance + 0.0001 ? 'ok' : 'diff';
+  return { semtek: sm, actual: ac, diff, status, note };
+}
+
+/** A source counts as loaded for a day if the day falls between its first import and the end of its latest import. */
+export function makeCoverage(coverage: Coverage[]) {
+  const span = new Map<string, [string, string]>();
+  for (const c of coverage) {
+    const cur = span.get(c.source);
+    span.set(c.source, cur ? [c.date_from < cur[0] ? c.date_from : cur[0], c.date_to > cur[1] ? c.date_to : cur[1]] : [c.date_from, c.date_to]);
+  }
+  const has = (source: string) => span.has(source);
+  const covered = (source: string, d: string) => { const r = span.get(source); return !!r && r[0] <= d && d <= r[1]; };
+  return { has, covered, span };
+}
+export const CARD_SOURCES = ['paymentsense', 'stripe_shop', 'stripe_office'];
+export const SOURCE_NAME: Record<string, string> = { semtek: 'Semtek', paymentsense: 'Paymentsense', stripe_shop: 'Stripe Shop', stripe_office: 'Stripe Office', bacs: 'BACS report' };
 
 /**
- * Build comparison rows for [from, to]. Days are merged into one row wherever a count or a float
- * spans several days, because cash for those days can only be checked together.
+ * One row per day. Cheques, vouchers, cards and BACS are compared day by day. Cash is compared over the
+ * period a count or float covers (several days when one float or count covers more than one day).
  */
 export function compare(input: {
   from: string; to: string;
   semtek: SemtekDay[]; cards: CardTxn[]; counts: CountRow[]; floats: FloatRow[];
   cheques: ChequeRow[]; vouchers: VoucherLot[]; entries: EntryRow[];
-  bacs: { txn_date: string; amount: number }[]; coverage: Coverage[];
-}): CompareGroup[] {
+  bacs: { txn_date: string; amount: number }[]; coverage: Coverage[]; cashTolerance?: number;
+}): DayRow[] {
+  const tol = input.cashTolerance ?? 0;
   const days = eachDay(input.from, input.to);
   const idx = new Map(days.map((d, i) => [d, i]));
-  // union-find over day indexes
   const parent = days.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   const join = (a: string, b: string) => {
@@ -58,68 +83,65 @@ export function compare(input: {
   };
   for (const c of input.counts) if (c.date_to > c.date_from) join(c.date_from, c.date_to);
   for (const f of input.floats) if (!f.unused && f.date_to > f.date_from) join(f.date_from, f.date_to);
-
   const groupOf = new Map<string, number>();
   const groups = new Map<number, string[]>();
   days.forEach((d, i) => { const r = find(i); groupOf.set(d, r); if (!groups.has(r)) groups.set(r, []); groups.get(r)!.push(d); });
 
-  const sum = <T,>(rows: T[], day: (r: T) => string, val: (r: T) => number, g: number) =>
-    rows.reduce((s, r) => (groupOf.get(day(r)) === g ? s + val(r) : s), 0);
-  const covered = (source: string, ds: string[]) =>
-    ds.every(d => input.coverage.some(c => (c.source === source) && c.date_from <= d && c.date_to >= d));
+  const cov = makeCoverage(input.coverage);
+  const semtekLoaded = (d: string) => cov.covered('semtek', d);
+  const cardsLoaded = (d: string) => CARD_SOURCES.filter(s => cov.has(s)).every(s => cov.covered(s, d)) && CARD_SOURCES.some(s => cov.has(s));
+  const onDay = <T,>(rows: T[], day: (r: T) => string, val: (r: T) => number, d: string) => rows.reduce((s, r) => (day(r) === d ? s + val(r) : s), 0);
+  const semOn = (k: keyof SemtekDay, d: string) => onDay(input.semtek, r => r.txn_date, r => Number(r[k]) || 0, d);
 
-  const out: CompareGroup[] = [];
-  for (const [g, ds] of [...groups.entries()].sort((a, b) => (a[1][0] < b[1][0] ? -1 : 1))) {
-    const sem = (k: keyof SemtekDay) => sum(input.semtek, r => r.txn_date, r => Number(r[k]) || 0, g);
-    const counts = input.counts.filter(c => groupOf.get(c.date_from) === g || (c.date_from < input.from && groupOf.get(c.date_to) === g));
-    const floats = input.floats.filter(f => !f.unused && (groupOf.get(f.date_from) === g || (f.date_from < input.from && groupOf.get(f.date_to) === g)));
+  // cash per group
+  const cashCells = new Map<number, CashCell>();
+  for (const [g, ds] of groups) {
+    const inG = (d: string) => groupOf.get(d) === g;
+    const counts = input.counts.filter(c => inG(c.date_from) || (c.date_from < input.from && inG(c.date_to)));
+    const floats = input.floats.filter(f => !f.unused && (inG(f.date_from) || (f.date_from < input.from && inG(f.date_to))));
     const countTotal = counts.filter(c => c.against_pos !== false).reduce((s, c) => s + Number(c.cash_total), 0);
     const floatTotal = floats.reduce((s, f) => s + Number(f.amount), 0);
-    const cashEntries = sum(input.entries.filter(e => e.account === 'cash' && e.direction === 'in' && e.against_pos), e => e.entry_date, e => Number(e.amount), g);
-
-    const semCash = sem('cash');
-    let cashActual: number | null = null; let cashNote: string | undefined;
-    if (counts.length) {
-      cashActual = countTotal - floatTotal + cashEntries;
-      if (!floats.length) cashNote = 'No float recorded for these dates';
-    } else if (cashEntries) { cashActual = cashEntries; cashNote = 'No count entered yet'; }
-    else if (semCash !== 0 || floats.length) cashNote = 'No count entered yet';
-
-    const chqActual = sum(input.cheques.filter(c => c.against_pos), c => c.received_date, c => Number(c.amount), g);
-    const vchActual = sum(input.vouchers.filter(v => v.against_pos), v => v.received_date, v => Number(v.amount), g)
-      + 0;
-    const cardGross = sum(input.cards.filter(c => c.against_pos !== false), c => c.txn_date, c => Number(c.amount), g);
-    const cardOther = sum(input.cards.filter(c => c.against_pos === false), c => c.txn_date, c => Number(c.amount), g);
-    const cardNonPos = sum(input.entries.filter(e => CARD_ACCOUNTS.includes(e.account) && e.direction === 'in' && !e.against_pos), e => e.entry_date, e => Number(e.amount), g);
-    const bacsActual = sum(input.bacs, b => b.txn_date, b => Number(b.amount), g);
-
-    const missing: string[] = [];
-    if (!covered('semtek', ds)) missing.push('Semtek');
-    const cardSources = ['paymentsense', 'stripe_shop', 'stripe_office'].filter(s => !covered(s, ds));
-    const cardsComplete = cardSources.length === 0;
-    if (!cardsComplete) missing.push(...cardSources.map(s => ({ paymentsense: 'Paymentsense', stripe_shop: 'Stripe Shop', stripe_office: 'Stripe Office' } as Record<string, string>)[s]));
-    const bacsCovered = covered('bacs', ds);
-    if (!bacsCovered) missing.push('BACS report');
-    const countsDone = counts.length > 0;
-
-    out.push({
-      from: ds[0], to: ds[ds.length - 1], days: ds,
-      cash: fig(semCash, cashActual, cashNote),
-      cheque: fig(sem('cheque'), countsDone || chqActual ? chqActual : (sem('cheque') ? null : 0), !countsDone && !chqActual && sem('cheque') ? 'No count entered yet' : undefined),
-      vouchers: fig(sem('vouchers'), countsDone || vchActual ? vchActual : (sem('vouchers') ? null : 0), !countsDone && !vchActual && sem('vouchers') ? 'No count entered yet' : undefined),
-      cards: fig(sem('credit_card'), cardsComplete || cardGross ? cardGross - cardNonPos : null, cardsComplete ? (cardNonPos + cardOther ? `£${(cardNonPos + cardOther).toFixed(2)} of card payments in other categories left out` : undefined) : 'Card files missing for some days'),
-      bacs: fig(sem('bacs'), bacsCovered || bacsActual ? bacsActual : null, bacsCovered ? undefined : 'BACS report not loaded for these dates'),
-      counts: counts.map(c => c.ref), floats: floats.map(f => f.ref), floatTotal: round2(floatTotal), countTotal: round2(countTotal),
-      missing,
-    });
+    const entries = input.entries.filter(e => e.account === 'cash' && e.direction === 'in' && e.against_pos && inG(e.entry_date)).reduce((s, e) => s + Number(e.amount), 0);
+    const semCash = ds.reduce((s, d) => s + semOn('cash', d), 0);
+    let actual: number | null = null; let note: string | undefined;
+    if (!ds.every(semtekLoaded)) note = 'Semtek not loaded yet';
+    else if (counts.length) { actual = countTotal - floatTotal + entries; if (!floats.length) note = 'No float recorded for these dates'; }
+    else if (semCash !== 0 || floats.length) note = 'No count entered yet';
+    else if (entries) actual = entries;
+    const f = fig(semCash, actual, note, tol);
+    if (note === 'Semtek not loaded yet') f.status = counts.length || floats.length || entries ? 'waiting' : 'none';
+    cashCells.set(g, { ...f, from: ds[0], to: ds[ds.length - 1], span: ds.length, counts: counts.map(c => c.ref), floats: floats.map(x => x.ref), countTotal: round2(countTotal), floatTotal: round2(floatTotal), entries: round2(entries) });
   }
-  return out;
+
+  return days.map(d => {
+    const g = groupOf.get(d)!; const cell = cashCells.get(g)!;
+    const loaded = semtekLoaded(d);
+    const countDone = cell.counts.length > 0;
+    const waitSemtek = (f: Figure): Figure => (loaded ? f : { ...f, actual: f.actual, diff: null, status: f.actual || f.semtek ? 'waiting' : 'none', note: 'Semtek not loaded yet' });
+    const chq = onDay(input.cheques.filter(c => c.against_pos), c => c.received_date, c => Number(c.amount), d);
+    const vch = onDay(input.vouchers.filter(v => v.against_pos), v => v.received_date, v => Number(v.amount), d);
+    const cardIn = onDay(input.cards.filter(c => c.against_pos !== false), c => c.txn_date, c => Number(c.amount), d);
+    const cardOther = onDay(input.cards.filter(c => c.against_pos === false), c => c.txn_date, c => Number(c.amount), d)
+      + onDay(input.entries.filter(e => CARD_ACCOUNTS.includes(e.account) && e.direction === 'in' && !e.against_pos), e => e.entry_date, e => Number(e.amount), d);
+    const bacs = onDay(input.bacs, b => b.txn_date, b => Number(b.amount), d);
+    const sChq = semOn('cheque', d), sVch = semOn('vouchers', d);
+    return {
+      date: d, semtekLoaded: loaded,
+      cash: cell.from === d ? cell : null, cashFrom: cell.from, cashTo: cell.to,
+      cheque: waitSemtek(fig(sChq, countDone || chq ? chq : sChq ? null : 0, !countDone && !chq && sChq ? 'No count entered yet' : undefined)),
+      vouchers: waitSemtek(fig(sVch, countDone || vch ? vch : sVch ? null : 0, !countDone && !vch && sVch ? 'No count entered yet' : undefined)),
+      cards: waitSemtek(cardsLoaded(d)
+        ? fig(semOn('credit_card', d), cardIn, cardOther ? `£${cardOther.toFixed(2)} in other categories left out` : undefined)
+        : fig(semOn('credit_card', d), null, 'Card files not imported for this day yet')),
+      bacs: waitSemtek(cov.covered('bacs', d) ? fig(semOn('bacs', d), bacs) : fig(semOn('bacs', d), null, 'BACS report not imported for this day yet')),
+    };
+  });
 }
 
 export interface BacsMatchInput { id: string; txn_date: string; amount: number; label: string }
 export interface BacsMatch { bank: BacsMatchInput | null; semtek: BacsMatchInput | null; dayGap: number | null }
 
-/** Pair each BACS report line with a Semtek BACS line of the same amount within ±window days. */
+/** Pair each line on one side with a Semtek line of the same amount within ±window days (0 = same day). Used for BACS, cards and cheques. */
 export function matchBacs(bank: BacsMatchInput[], semtek: BacsMatchInput[], windowDays: number): BacsMatch[] {
   const free = [...semtek].sort((a, b) => (a.txn_date < b.txn_date ? -1 : 1));
   const used = new Set<string>();

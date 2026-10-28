@@ -172,7 +172,7 @@ function SavedResult({ range, onClose }: { range: [string, string]; onClose: () 
   return (
     <section className="card highlight">
       <div className="row between"><h2>Saved – here is how it compares with Semtek</h2><button className="ghost small" onClick={onClose}>Hide</button></div>
-      {loading ? <Loading /> : error ? <ErrorBox error={error} /> : <CompareTable groups={data!.groups} />}
+      {loading ? <Loading /> : error ? <ErrorBox error={error} /> : <CompareTable days={data!.days} />}
     </section>
   );
 }

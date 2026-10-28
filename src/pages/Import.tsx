@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { all, q, supabase } from '../lib/supabase';
-import { parseFile, sniffSource, dateRange, SOURCE_LABEL, detectStripeAccount, type Source, type ParseResult } from '../lib/parsers';
+import { parseFile, sniffSource, dateRange, guessPeriod, SOURCE_LABEL, detectStripeAccount, type Source, type ParseResult } from '../lib/parsers';
 import { loadSettings } from '../lib/data';
 import { fmtRange, fmtStamp } from '../lib/format';
 import { PageHead, useLoad, useToast, Loading, ErrorBox, Empty } from '../components/ui';
@@ -9,6 +9,7 @@ type Item = {
   key: string; file: File; buf: ArrayBuffer; source: Source | ''; sniffed: Source | null;
   parsed: ParseResult | null; error: string | null; stripeConflict: string | null; confirmConflict: boolean;
   status: 'ready' | 'importing' | 'done' | 'failed'; result?: string;
+  periodFrom: string; periodTo: string; periodFromFile: boolean;
 };
 const SOURCES: Source[] = ['semtek', 'paymentsense', 'stripe_shop', 'stripe_office', 'bacs'];
 const CONFLICT: Record<Source, string> = { semtek: 'sale_id', paymentsense: 'merchant,ext_id', stripe_shop: 'merchant,ext_id', stripe_office: 'merchant,ext_id', bacs: 'txn_date,description,amount,occurrence' };
@@ -32,7 +33,10 @@ export default function ImportPage() {
         const acct = detectStripeAccount(it.buf);
         if (acct && acct !== source) stripeConflict = `This file's transaction IDs belong to ${SOURCE_LABEL[acct]}, not ${SOURCE_LABEL[source]}.`;
       }
-      return { ...it, source, parsed, error: parsed.rows.length ? null : 'No usable lines found in this file.', stripeConflict, confirmConflict: false };
+      const guess = guessPeriod(source, it.buf, it.file.name);
+      const [lo, hi] = dateRange(parsed.rows as { txn_date: string }[]);
+      const periodFrom = guess?.[0] ?? lo ?? '', periodTo = guess?.[1] ?? hi ?? '';
+      return { ...it, source, parsed, error: parsed.rows.length ? null : 'No usable lines found in this file.', stripeConflict, confirmConflict: false, periodFrom, periodTo, periodFromFile: !!guess };
     } catch (e) { return { ...it, source, parsed: null, error: String((e as Error).message), stripeConflict: null }; }
   };
 
@@ -41,7 +45,7 @@ export default function ImportPage() {
     for (const file of Array.from(files)) {
       const buf = await file.arrayBuffer();
       const sniffed = sniffSource(buf, file.name);
-      list.push(parse({ key: file.name + file.size + Math.random(), file, buf, source: '', sniffed, parsed: null, error: null, stripeConflict: null, confirmConflict: false, status: 'ready' }, sniffed ?? ''));
+      list.push(parse({ key: file.name + file.size + Math.random(), file, buf, source: '', sniffed, parsed: null, error: null, stripeConflict: null, confirmConflict: false, status: 'ready', periodFrom: '', periodTo: '', periodFromFile: false }, sniffed ?? ''));
     }
     setItems(i => [...i, ...list]);
   };
@@ -73,7 +77,9 @@ export default function ImportPage() {
       const fresh = rows.filter(r => !existing.has(keyOf(r)));
       const imp = await q(supabase.from('import_files').insert({
         source: src, filename: it.file.name, rows_in_file: rows.length, rows_added: fresh.length,
-        rows_duplicate: rows.length - fresh.length, date_from: lo, date_to: hi,
+        rows_duplicate: rows.length - fresh.length,
+        // the period the file covers (so days with no sales from a provider still count as loaded)
+        date_from: it.periodFrom && it.periodFrom < lo! ? it.periodFrom : lo, date_to: it.periodTo && it.periodTo > hi! ? it.periodTo : hi,
       }).select('id').single()) as { id: string };
       for (let i = 0; i < fresh.length; i += 500) {
         const chunk = fresh.slice(i, i + 500).map(r => ({ ...r, import_id: imp.id }));
@@ -102,7 +108,7 @@ export default function ImportPage() {
       {items.length > 0 && (
         <section className="card">
           <div className="table-wrap"><table>
-            <thead><tr><th>File</th><th>Source</th><th>Lines</th><th>Dates</th><th>Result</th><th /></tr></thead>
+            <thead><tr><th>File</th><th>Source</th><th>Lines</th><th>Covers the period</th><th>Result</th><th /></tr></thead>
             <tbody>
               {items.map(it => (
                 <tr key={it.key}>
@@ -115,7 +121,13 @@ export default function ImportPage() {
                     {it.sniffed && it.source && it.sniffed !== it.source && <div className="warn small">Looks like {SOURCE_LABEL[it.sniffed]}</div>}
                   </td>
                   <td className="num">{it.parsed ? it.parsed.rows.length : '–'}{it.parsed?.skipped ? <span className="muted small"> ({it.parsed.skipped} skipped)</span> : null}</td>
-                  <td>{it.parsed && it.parsed.rows.length ? fmtRange(...(dateRange(it.parsed.rows as { txn_date: string }[]) as [string, string])) : '–'}</td>
+                  <td>{it.parsed && it.parsed.rows.length ? (
+                    <div className="period">
+                      <input id={`pf-${it.key}`} type="date" value={it.periodFrom} disabled={it.status !== 'ready'} onChange={e => update(it.key, x => ({ ...x, periodFrom: e.target.value }))} aria-label="Covers from" />
+                      <span>to</span>
+                      <input id={`pt-${it.key}`} type="date" value={it.periodTo} disabled={it.status !== 'ready'} onChange={e => update(it.key, x => ({ ...x, periodTo: e.target.value }))} aria-label="Covers to" />
+                      <div className="small muted">{it.periodFromFile ? 'Read from the file.' : 'First to last transaction. Change it if the file covers more days.'} Transactions: {fmtRange(...(dateRange(it.parsed.rows as { txn_date: string }[]) as [string, string]))}</div>
+                    </div>) : '–'}</td>
                   <td className="wrap">
                     {it.error && <span className="bad">{it.error}</span>}
                     {it.stripeConflict && it.status === 'ready' && (
