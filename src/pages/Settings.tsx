@@ -73,6 +73,8 @@ export default function SettingsPage() {
 
       <OpeningItems key={itemsKey} />
 
+      <UsersSection />
+
       {editSetting && <EditDialog table="settings" row={{ ...editSetting, value: String(editSetting.value) }} title={editSetting.label} onClose={() => setEditSetting(null)}
         fields={[{ key: 'value', label: editSetting.label, type: 'number' }]} onSaved={() => { setEditSetting(null); settings.reload(); }} />}
       {editCat && <EditDialog table="categories" row={editCat as unknown as Record<string, unknown>} title="Rename category" onClose={() => setEditCat(null)} onSaved={() => { setEditCat(null); cats.reload(); }}
@@ -151,6 +153,64 @@ function OpeningItems() {
       )}
       {voiding && <ReasonDialog title="Remove opening item" danger confirm="Remove" onCancel={() => setVoiding(null)} prompt={`${money(voiding.amount)} will be removed from the opening balance. It stays in the change history.`}
         onConfirm={async reason => { await q(supabase.from(voiding.kind === 'cheque' ? 'cheques' : 'voucher_lots').update({ voided: true, change_reason: reason }).eq('id', voiding.id)); setVoiding(null); list.reload(); toast('Removed.'); }} />}
+    </section>
+  );
+}
+
+type AppUser = { email: string; name: string | null; added_at: string; added_by: string | null };
+
+/** Everyone on this list can sign in and do everything in the app. */
+function UsersSection() {
+  const toast = useToast();
+  const list = useLoad(() => q(supabase.from('app_users').select('*').order('added_at')) as Promise<AppUser[]>, []);
+  const me = useLoad(async () => (await supabase.auth.getUser()).data.user?.email?.toLowerCase() ?? '', []);
+  const [adding, setAdding] = useState<{ email: string; name: string } | null>(null);
+  const [removing, setRemoving] = useState<AppUser | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <section className="card">
+      <div className="row between"><h2>Users</h2><button className="ghost" onClick={() => { setAdding({ email: '', name: '' }); setErr(null); }}>+ Add user</button></div>
+      <p className="small muted">Everyone listed here can sign in and use everything in the app, including adding or removing users. Every change records who made it.</p>
+      {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : (
+        <table className="ledger"><tbody>{list.data!.map(u => (
+          <tr key={u.email}>
+            <td><strong>{u.name || u.email}</strong>{u.name ? <div className="small muted">{u.email}</div> : null}</td>
+            <td className="small muted">{u.email === me.data ? 'you' : u.added_by ? `added by ${u.added_by}` : ''}</td>
+            <td className="r">{u.email !== me.data && <button className="ghost small" onClick={() => setRemoving(u)}>Remove</button>}</td>
+          </tr>
+        ))}</tbody></table>
+      )}
+      {adding && <Modal title="Add user" onClose={() => setAdding(null)}>
+        <div className="stack">
+          <label className="field"><span>Email</span><input id="nu-email" type="email" value={adding.email} onChange={e => setAdding({ ...adding, email: e.target.value })} placeholder="name@emhbutchers.co.uk" /></label>
+          <label className="field"><span>Name</span><input id="nu-name" value={adding.name} onChange={e => setAdding({ ...adding, name: e.target.value })} placeholder="Shown in the user list" /></label>
+          <p className="small muted">Then send them the website address. They click “Create your login” with this email, confirm it from the email Supabase sends, and sign in.</p>
+          {err && <ErrorBox error={err} />}
+          <div className="row end"><button className="ghost" onClick={() => setAdding(null)}>Cancel</button>
+            <button className="primary" disabled={busy || !/^\S+@\S+\.\S+$/.test(adding.email.trim())} onClick={async () => {
+              setBusy(true); setErr(null);
+              try {
+                await q(supabase.from('app_users').insert({ email: adding.email.trim().toLowerCase(), name: adding.name.trim() || null }));
+                setAdding(null); list.reload(); toast('User added. They can now create their login.');
+              } catch (e) { setErr(/duplicate|unique/i.test(String((e as Error).message)) ? 'That email already has access.' : String((e as Error).message)); }
+              setBusy(false);
+            }}>{busy ? 'Adding…' : 'Add user'}</button></div>
+        </div>
+      </Modal>}
+      {removing && <Modal title={`Remove ${removing.name || removing.email}`} onClose={() => setRemoving(null)}>
+        <div className="stack">
+          <p>{removing.email} will no longer be able to see or change anything. Their past changes stay in the change history.</p>
+          {err && <ErrorBox error={err} />}
+          <div className="row end"><button className="ghost" onClick={() => setRemoving(null)}>Cancel</button>
+            <button className="danger" disabled={busy} onClick={async () => {
+              setBusy(true); setErr(null);
+              try { await q(supabase.from('app_users').delete().eq('email', removing.email)); setRemoving(null); list.reload(); toast('Access removed.'); }
+              catch (e) { setErr(String((e as Error).message)); }
+              setBusy(false);
+            }}>Remove access</button></div>
+        </div>
+      </Modal>}
     </section>
   );
 }

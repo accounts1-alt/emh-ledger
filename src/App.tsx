@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { supabase } from './lib/supabase';
+import { supabase, rpc } from './lib/supabase';
 import { ToastHost } from './components/ui';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -34,6 +34,11 @@ export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [page, setPage] = useState(route());
   const [menuOpen, setMenuOpen] = useState(false);
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!session) { setAllowed(null); return; }
+    rpc<boolean>('is_allowed', {}).then(v => setAllowed(!!v)).catch(() => setAllowed(true));
+  }, [session]);
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
@@ -43,6 +48,16 @@ export default function App() {
   }, []);
   if (session === undefined) return <div className="boot">Loading…</div>;
   if (!session) return <ToastHost><Login /></ToastHost>;
+  if (allowed === null) return <div className="boot">Loading…</div>;
+  if (!allowed) return (
+    <div className="login"><div className="login-card">
+      <div className="brand big"><span className="mark" aria-hidden="true">EH</span><div><strong>Em H Butchers</strong><span>Money ledger</span></div></div>
+      <h1>No access yet</h1>
+      <p>You're signed in as <strong>{session.user.email}</strong>, but this email hasn't been given access to the ledger.</p>
+      <p className="small muted">Ask someone who already uses the app to add you in Settings → Users, then sign in again.</p>
+      <button className="ghost" onClick={() => supabase.auth.signOut()}>Sign out</button>
+    </div></div>
+  );
   const Page = PAGES[page];
   return (
     <ToastHost>
