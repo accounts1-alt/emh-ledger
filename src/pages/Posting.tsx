@@ -85,16 +85,17 @@ function PostingList() {
   const toast = useToast();
   const data = useLoad(async () => {
     const [p, c, v] = await Promise.all([
-      q(supabase.from('postings').select('*').eq('voided', false).order('posting_date', { ascending: false }).limit(60)),
-      q(supabase.from('cheques').select('posting_id,amount,banking_id').eq('voided', false).not('posting_id', 'is', null).is('bounce_of', null)),
+      q(supabase.from('postings').select('*, bankings(ref,banking_date)').eq('voided', false).order('posting_date', { ascending: false }).limit(60)),
+      q(supabase.from('cheques').select('posting_id,amount,banking_id,bankings(ref)').eq('voided', false).not('posting_id', 'is', null).is('bounce_of', null)),
       q(supabase.from('voucher_lots').select('posting_id,amount').eq('voided', false).not('posting_id', 'is', null)),
     ]) as [PostingRec[], { posting_id: string; amount: number; banking_id: string | null }[], { posting_id: string; amount: number }[]];
     return p.map(x => {
       const items = x.kind === 'cheque' ? c.filter(i => i.posting_id === x.id) : v.filter(i => i.posting_id === x.id);
       const gross = r2(items.reduce((s, i) => s + Number(i.amount), 0));
       const fee = r2(Number(x.fee_fixed) + gross * Number(x.fee_pct) / 100);
+      const refs = x.kind === 'cheque' ? [...new Set((c as unknown as { posting_id: string; bankings: { ref: number } | null }[]).filter(i => i.posting_id === x.id && i.bankings).map(i => i.bankings!.ref))] : ((x as unknown as { bankings: { ref: number } | null }).bankings ? [(x as unknown as { bankings: { ref: number } }).bankings.ref] : []);
       const banked = x.kind === 'cheque' ? (c.filter(i => i.posting_id === x.id && i.banking_id).length) : (x.banking_id ? items.length : 0);
-      return { ...x, n: items.length, gross, fee, banked };
+      return { ...x, n: items.length, gross, fee, banked, refs };
     });
   }, []);
   const [voiding, setVoiding] = useState<PostingRec | null>(null);
@@ -106,8 +107,9 @@ function PostingList() {
       <tbody>{data.data.map(p => (
         <tr key={p.id}><td className="muted">{p.ref}</td><td className="nowrap">{fmtDate(p.posting_date)}</td><td>{p.kind === 'cheque' ? 'Cheques' : 'Vouchers'}{p.note ? <span className="muted small"> · {p.note}</span> : null}</td>
           <td className="r num">{p.n}</td><td className="r num">{money(p.gross)}</td><td className="r num">{money(p.fee, { blankZero: true })}</td><td className="r num">{money(p.gross - p.fee)}</td>
-          <td>{p.banked === 0 ? <span className="chip pending">waiting</span> : p.banked < p.n ? <span className="chip pending">{p.banked} of {p.n}</span> : <span className="chip ok">banked</span>}</td>
-          <td>{p.banked === 0 && <button className="ghost small" onClick={() => setVoiding(p)}>Void</button>}</td></tr>
+          <td>{p.banked === 0 ? <span className="chip pending">waiting</span> : p.banked < p.n ? <span className="chip pending">{p.banked} of {p.n}</span> : <span className="chip ok">banked</span>}
+            {p.refs.length > 0 && <span className="small muted"> in banking #{p.refs.join(', #')}</span>}</td>
+          <td>{p.banked === 0 ? <button className="ghost small" onClick={() => setVoiding(p)}>Void</button> : <span className="small muted" title="Void the banking first on the Banking page">void banking first</span>}</td></tr>
       ))}</tbody>
     </table></div>
     {voiding && <ReasonDialog title={`Void posting #${voiding.ref}`} danger confirm="Void posting" onCancel={() => setVoiding(null)}
