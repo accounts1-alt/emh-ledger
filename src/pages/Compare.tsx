@@ -8,6 +8,7 @@ import { exportSheet } from '../lib/exporter';
 import { DataGrid } from '../components/DataGrid';
 import { semtekCols, cardCols } from '../components/columns';
 import { CONF } from './Records';
+import { COINS, NOTES, VOUCH } from '../lib/denoms';
 
 type Kind = 'cash' | 'cheque' | 'vouchers' | 'cards' | 'bacs';
 const COLS: [Kind, string][] = [['cash', 'Cash (after float)'], ['cheque', 'Cheques'], ['vouchers', 'Vouchers'], ['cards', 'Cards'], ['bacs', 'BACS']];
@@ -213,6 +214,8 @@ function DayDetail({ day, data, onClose, onChanged }: { day: DayRow; data: Compa
         {chqOpen.length > 0 && <><h3>Cheques that don't pair up</h3><MatchTable data={chqOpen} left="cheques received" onRight={id => editor.open('semtek_lines', id)} /></>}
         {bacsOpen.length > 0 && <><h3>BACS that doesn't pair up</h3><MatchTable data={bacsOpen} left="BACS report" onRight={id => editor.open('semtek_lines', id)} /></>}
 
+        <DayActuals day={day} onChanged={onChanged} />
+
         <h3>All Semtek transactions on {fmtShort(day.date)}</h3>
         {lines.loading ? <Loading /> : lines.error ? <ErrorBox error={lines.error} /> : (
           <DataGrid rows={dayLines as unknown as Record<string, unknown>[] as (Record<string, unknown> & { id: string })[]} rowKey={r => r.id}
@@ -234,5 +237,110 @@ function Suspects({ title, lines, label, field, onEdit }: { title: string; lines
       <div className="small"><strong>Possible cause:</strong> {title}</div>
       <ul>{lines.map(l => <li key={l.id} className="small">{fmtShort(l.txn_date)} {label(l)} · <span className="num">{money(Number(l[field]))}</span> <button className="ghost small" onClick={() => onEdit(l.id)}>Adjust</button></li>)}</ul>
     </div>
+  );
+}
+
+type Row = Record<string, unknown> & { id: string };
+type EditTarget = { table: string; row: Row; title: string; fields: FieldDef[] };
+
+/** What was actually received: the cash count(s), floats and cash entries for the cash period, and the vouchers and cheques of the day. */
+function DayActuals({ day, onChanged }: { day: DayRow; onChanged: () => void }) {
+  const cats = useLoad(loadCategories, []);
+  const data = useLoad(async () => {
+    const [counts, floats, entries, lots, cheques] = await Promise.all([
+      all((a, b) => supabase.from('counts').select('*').eq('voided', false).lte('date_from', day.cashTo).gte('date_to', day.cashFrom).order('date_from').range(a, b)),
+      all((a, b) => supabase.from('floats').select('*').eq('voided', false).lte('date_from', day.cashTo).gte('date_to', day.cashFrom).order('date_from').range(a, b)),
+      all((a, b) => supabase.from('entries').select('*').eq('voided', false).eq('direction', 'in').in('account', ['cash', 'voucher', 'cheque']).gte('entry_date', day.cashFrom).lte('entry_date', day.cashTo).range(a, b)),
+      all((a, b) => supabase.from('voucher_lots').select('*, counts(ref), entries(ref)').eq('voided', false).eq('received_date', day.date).range(a, b)),
+      all((a, b) => supabase.from('cheques').select('*').eq('voided', false).eq('received_date', day.date).is('bounce_of', null).range(a, b)),
+    ]);
+    return { counts, floats, entries, lots, cheques } as unknown as Record<'counts' | 'floats' | 'entries' | 'lots' | 'cheques', Row[]>;
+  }, [day.date, day.cashFrom, day.cashTo]);
+  const [edit, setEdit] = useState<EditTarget | null>(null);
+  const catOpt = (r: Row) => ({ key: 'category_id', label: 'Category', type: 'select' as const, options: inCategoryOptions(cats.data, r.category_id) });
+  const cat = (r: Row) => (cats.data ?? []).find(c => c.id === r.category_id)?.name ?? '';
+  const period = day.cashFrom === day.cashTo ? fmtShort(day.cashFrom) : `${fmtShort(day.cashFrom)} – ${fmtShort(day.cashTo)}`;
+  if (data.loading) return <Loading />;
+  if (data.error || !data.data) return <ErrorBox error={data.error ?? ''} />;
+  const d = data.data;
+  const cashEntries = d.entries.filter(e => e.account === 'cash');
+  const adjust = (t: EditTarget) => <button className="ghost small" onClick={() => setEdit(t)}>Adjust</button>;
+
+  return (
+    <>
+      <h3>Cash counted for {period}</h3>
+      <DataGrid rows={d.counts} rowKey={r => r.id} empty="No count entered for these days yet."
+        cols={[
+          { key: 'ref', label: 'Count', value: r => Number(r.ref), text: r => `#${r.ref}` },
+          { key: 'days', label: 'Days', value: r => String(r.date_from), text: r => fmtRange(String(r.date_from), String(r.date_to)) },
+          { key: 'coins', label: 'Coins', kind: 'money', value: r => Number(r.coins_total), total: true },
+          { key: 'notes', label: 'Notes', kind: 'money', value: r => Number(r.notes_total), total: true },
+          { key: 'cash', label: 'Cash', kind: 'money', value: r => Number(r.cash_total), total: true },
+          { key: 'cat', label: 'Category', value: r => cat(r) + (r.against_pos === false ? ' (not in Semtek)' : '') },
+          { key: 'note', label: 'Note', value: r => String(r.note ?? '') },
+        ]}
+        actions={r => adjust({ table: 'counts', row: r, title: `Adjust count #${r.ref}`, fields: [
+          { key: 'date_from', label: 'Day', type: 'date' }, { key: 'date_to', label: 'To', type: 'date' },
+          ...[...COINS, ...NOTES, ...VOUCH].map(([k, l]) => ({ key: k, label: `${k.startsWith('v') ? 'Voucher ' : ''}${l} (count)`, type: 'int' } as FieldDef)),
+          catOpt(r), { key: 'against_pos', label: 'Cash should be in Semtek', type: 'bool' }, { key: 'note', label: 'Note', type: 'text' }] })} />
+
+      <h3>Floats for {period}</h3>
+      <DataGrid rows={d.floats} rowKey={r => r.id} empty="No float recorded for these days."
+        cols={[
+          { key: 'ref', label: 'Float', value: r => Number(r.ref), text: r => `#${r.ref}` },
+          { key: 'covers', label: 'Covers', value: r => String(r.date_from), text: r => fmtRange(String(r.date_from), String(r.date_to)) },
+          { key: 'prepared', label: 'Prepared', value: r => String(r.prepared_date), text: r => fmtShort(String(r.prepared_date)) },
+          { key: 'amount', label: 'Amount', kind: 'money', value: r => Number(r.amount), total: true },
+          { key: 'status', label: 'Status', value: r => (r.unused ? 'not used' : 'used') },
+        ]}
+        actions={r => adjust({ table: 'floats', row: r, title: `Adjust float #${r.ref}`, fields: [
+          { key: 'date_from', label: 'For day', type: 'date' }, { key: 'date_to', label: 'Until', type: 'date' }, { key: 'amount', label: 'Amount £', type: 'number' },
+          { key: 'prepared_date', label: 'Prepared on', type: 'date' }, { key: 'unused', label: 'Not used', type: 'bool' }, { key: 'note', label: 'Note', type: 'text' }] })} />
+
+      {cashEntries.length > 0 && <>
+        <h3>Cash entries for {period}</h3>
+        <DataGrid rows={cashEntries} rowKey={r => r.id}
+          cols={[
+            { key: 'ref', label: 'Entry', value: r => Number(r.ref), text: r => `#${r.ref}` },
+            { key: 'date', label: 'Date', kind: 'date', value: r => String(r.entry_date), text: r => fmtShort(String(r.entry_date)) },
+            { key: 'cat', label: 'Category', value: r => cat(r) },
+            { key: 'pos', label: 'In Semtek?', value: r => (r.against_pos ? 'yes' : 'separate') },
+            { key: 'ref2', label: 'Reference', value: r => String(r.reference ?? '') },
+            { key: 'amount', label: 'Amount', kind: 'money', value: r => Number(r.amount), total: true },
+          ]}
+          actions={r => adjust({ table: 'entries', row: r, title: `Adjust entry #${r.ref}`, fields: [
+            { key: 'entry_date', label: 'Date', type: 'date' }, { key: 'amount', label: 'Amount £', type: 'number' },
+            { key: 'category_id', label: 'Category', type: 'select', options: inCategoryOptions(cats.data, r.category_id) },
+            { key: 'against_pos', label: 'Should be in Semtek', type: 'bool' }, { key: 'reference', label: 'Reference', type: 'text' }, { key: 'note', label: 'Note', type: 'text' }] })} />
+      </>}
+
+      <h3>Vouchers received on {fmtShort(day.date)}</h3>
+      <DataGrid rows={d.lots} rowKey={r => r.id} empty="No vouchers received on this day."
+        cols={[
+          { key: 'from', label: 'From', value: r => (r.opening ? 'Opening balance' : (r.counts as { ref: number } | null) ? `Weekly count #${(r.counts as { ref: number }).ref}` : (r.entries as { ref: number } | null) ? `Entry #${(r.entries as { ref: number }).ref}` : '') },
+          { key: 'cat', label: 'Category', value: r => cat(r) + (r.against_pos === false ? ' (not in Semtek)' : '') },
+          { key: 'status', label: 'Status', value: r => (r.posting_id ? 'posted' : 'in office') },
+          { key: 'amount', label: 'Amount', kind: 'money', value: r => Number(r.amount), total: true },
+        ]}
+        actions={r => adjust({ table: 'voucher_lots', row: r, title: 'Adjust vouchers', fields: [
+          { key: 'received_date', label: 'Received on', type: 'date' }, { key: 'amount', label: 'Amount £', type: 'number' }, catOpt(r), { key: 'against_pos', label: 'Should be in Semtek', type: 'bool' }] })} />
+
+      <h3>Cheques received on {fmtShort(day.date)}</h3>
+      <DataGrid rows={d.cheques} rowKey={r => r.id} empty="No cheques received on this day."
+        cols={[
+          { key: 'payer', label: 'Name', value: r => String(r.payer ?? '') },
+          { key: 'bank', label: 'Bank', value: r => String(r.bank ?? '') },
+          { key: 'no', label: 'Cheque no.', value: r => String(r.cheque_no ?? '') },
+          { key: 'cat', label: 'Category', value: r => cat(r) + (r.against_pos === false ? ' (not in Semtek)' : '') },
+          { key: 'status', label: 'Status', value: r => (r.status === 'office' ? 'in office' : String(r.status)) },
+          { key: 'amount', label: 'Amount', kind: 'money', value: r => Number(r.amount), total: true },
+        ]}
+        actions={r => adjust({ table: 'cheques', row: r, title: 'Adjust cheque', fields: [
+          { key: 'received_date', label: 'Received', type: 'date' }, { key: 'payer', label: 'Name', type: 'text' }, { key: 'bank', label: 'Bank', type: 'text' },
+          { key: 'cheque_no', label: 'Cheque no.', type: 'text' }, { key: 'amount', label: 'Amount £', type: 'number' }, catOpt(r), { key: 'against_pos', label: 'Should be in Semtek', type: 'bool' }] })} />
+
+      {edit && <EditDialog table={edit.table} row={edit.row} title={edit.title} fields={edit.fields} onClose={() => setEdit(null)}
+        onSaved={() => { setEdit(null); data.reload(); onChanged(); }} />}
+    </>
   );
 }
