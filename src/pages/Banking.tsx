@@ -10,13 +10,120 @@ type Expected = { kind: string; posting_id: string; ref: number; since: string; 
 type BankingRec = { id: string; ref: number; banking_date: string; kind: Kind; merchant: string | null; amount_received: number | null; note: string | null };
 
 export default function BankingPage() {
-  const [tab, setTab] = useState<'new' | 'list'>('new');
+  const [tab, setTab] = useState<'quick' | 'new' | 'list'>('quick');
   return (
     <>
-      <PageHead title="Banking" sub="Record what has arrived in the bank. Choose cards, cheques, vouchers or cash, then tick what this banking covers." />
-      <Tabs value={tab} onChange={setTab} items={[['new', 'New banking'], ['list', 'Bankings']]} />
-      {tab === 'new' ? <NewBanking onDone={() => setTab('list')} /> : <BankingList />}
+      <PageHead title="Banking" sub="Record what has arrived in the bank. Quick banking shows everything outstanding at once; New banking does one type at a time." />
+      <Tabs value={tab} onChange={setTab} items={[['quick', 'Quick banking'], ['new', 'New banking (one type)'], ['list', 'Bankings']]} />
+      {tab === 'quick' ? <QuickBanking onDone={() => setTab('list')} /> : tab === 'new' ? <NewBanking onDone={() => setTab('list')} /> : <BankingList />}
     </>
+  );
+}
+
+type Tile = { key: string; kind: 'card' | 'cheque' | 'voucher'; merchant: string | null; postingId: string | null; date: string;
+  title: string; detail: string; gross: number; fee: number; net: number };
+
+/** Every outstanding item as a tile, grouped by day: tick what arrived, save, and each tile becomes its own banking. */
+function QuickBanking({ onDone }: { onDone: () => void }) {
+  const toast = useToast();
+  const data = useLoad(async () => {
+    const [cards, exp] = await Promise.all([
+      q(supabase.from('v_card_daily').select('merchant,txn_date,unbanked_gross,unbanked_net,unbanked_txns').gt('unbanked_txns', 0).order('txn_date')) as Promise<CardDay[]>,
+      q(supabase.from('v_expected').select('*').in('kind', ['cheques', 'vouchers']).order('since')) as Promise<Expected[]>,
+    ]);
+    const tiles: Tile[] = [
+      ...cards.map(c => ({ key: `card:${c.merchant}:${c.txn_date}`, kind: 'card' as const, merchant: c.merchant, postingId: null, date: c.txn_date,
+        title: MERCHANT_LABEL[c.merchant], detail: `${c.unbanked_txns} payment${c.unbanked_txns === 1 ? '' : 's'}`,
+        gross: Number(c.unbanked_gross), fee: r2(Number(c.unbanked_gross) - Number(c.unbanked_net)), net: Number(c.unbanked_net) })),
+      ...exp.map(e => ({ key: `${e.kind}:${e.posting_id}`, kind: (e.kind === 'cheques' ? 'cheque' : 'voucher') as 'cheque' | 'voucher', merchant: null, postingId: e.posting_id, date: e.since,
+        title: e.kind === 'cheques' ? 'Cheques' : 'Vouchers', detail: `Posting #${e.ref} · ${e.items} item${e.items === 1 ? '' : 's'}`,
+        gross: Number(e.gross), fee: Number(e.fee), net: Number(e.net) })),
+    ];
+    return tiles.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.title.localeCompare(b.title)));
+  }, []);
+  const [date, setDate] = useState(today());
+  const [sel, setSel] = useState<Record<string, string>>({}); // key -> amount received (as typed)
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
+  const tiles = data.data ?? [];
+  const byDay = useMemo(() => { const m = new Map<string, Tile[]>(); for (const t of tiles) { m.set(t.date, [...(m.get(t.date) ?? []), t]); } return [...m.entries()]; }, [tiles]);
+  const chosen = tiles.filter(t => t.key in sel);
+  const expected = r2(chosen.reduce((s, t) => s + t.net, 0));
+  const received = r2(chosen.reduce((s, t) => s + (Number(sel[t.key]) || 0), 0));
+  const toggle = (t: Tile) => setSel(s => { const n = { ...s }; if (t.key in n) delete n[t.key]; else n[t.key] = t.net.toFixed(2); return n; });
+
+  const save = async () => {
+    setBusy(true); setErr(null);
+    const done: string[] = [];
+    try {
+      for (const t of chosen) {
+        let items: string[] = [];
+        if (t.kind === 'card') {
+          const tx = await all((a, b) => supabase.from('card_txns').select('id').eq('merchant', t.merchant!).eq('txn_date', t.date).eq('voided', false).is('banking_id', null).range(a, b)) as { id: string }[];
+          items = tx.map(x => x.id);
+        } else if (t.kind === 'cheque') {
+          const ch = await q(supabase.from('cheques').select('id').eq('posting_id', t.postingId!).eq('voided', false).is('banking_id', null).is('bounce_of', null)) as { id: string }[];
+          items = ch.map(x => x.id);
+        } else items = [t.postingId!];
+        const ref = await rpc<number>('create_banking', { p_kind: t.kind, p_date: date, p_merchant: t.kind === 'card' ? t.merchant : null, p_amount: Number(sel[t.key]) || 0, p_note: null, p_items: items });
+        done.push(`#${ref}`);
+      }
+      toast(`${done.length} banking${done.length === 1 ? '' : 's'} saved (${done.join(', ')}).`);
+      setSel({}); onDone();
+    } catch (e) {
+      setErr(`${done.length ? `Saved ${done.join(', ')} before this error: ` : ''}${String((e as Error).message)}`);
+      setSel({}); data.reload();
+    }
+    setBusy(false);
+  };
+
+  return (
+    <section className="card">
+      <div className="row wrap-row between">
+        <label className="field inline"><span>Arrived in the bank on</span><input id="qb-date" type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
+        <span className="small muted">Click each item that arrived. Change the amount on an item if a different figure landed.</span>
+      </div>
+      {data.loading ? <Loading /> : data.error ? <ErrorBox error={data.error} /> : !tiles.length ? <Empty>Nothing waiting to be banked.</Empty> : (
+        <div className="qb-days">
+          {byDay.map(([d, ts]) => (
+            <div key={d} className="qb-day">
+              <div className="qb-date">{fmtDate(d)}</div>
+              <div className="qb-tiles">
+                {ts.map(t => {
+                  const on = t.key in sel;
+                  const diff = on ? r2((Number(sel[t.key]) || 0) - t.net) : 0;
+                  return (
+                    <div key={t.key} className={`qb-tile ${on ? 'on' : ''} k-${t.kind}`} role="checkbox" aria-checked={on} tabIndex={0}
+                      onClick={() => toggle(t)} onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(t); } }}>
+                      <div className="qb-top"><strong>{t.title}</strong><span className="qb-check" aria-hidden="true">{on ? '✓' : ''}</span></div>
+                      <div className="small muted">{t.detail}</div>
+                      <div className="qb-amt num">{money(t.net)}</div>
+                      {t.fee ? <div className="small muted">{money(t.gross)} less {money(t.fee)} fees</div> : <div className="small muted">&nbsp;</div>}
+                      {on && (
+                        <div className="qb-recv" onClick={e => e.stopPropagation()}>
+                          <label className="small">Received £ <input id={`qb-${t.key}`} type="number" step="0.01" value={sel[t.key]} onChange={e => setSel(s => ({ ...s, [t.key]: e.target.value }))} /></label>
+                          {Math.abs(diff) >= 0.005 && <span className={`chip ${diff > 0 ? 'over' : 'short'}`}>{money(diff, { sign: true })}</span>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {err && <ErrorBox error={err} />}
+      <div className="row end sticky-actions wrap-row">
+        <div className="totals inline-totals">
+          <div><span>Ticked</span><strong>{chosen.length}</strong></div>
+          <div><span>Expected</span><strong>{money(expected)}</strong></div>
+          <div><span>Received</span><strong>{money(received)}</strong></div>
+          <div><span>Difference</span><Diff v={chosen.length ? r2(received - expected) : null} /></div>
+        </div>
+        <button className="ghost" disabled={!chosen.length} onClick={() => setSel({})}>Clear</button>
+        <button className="primary" disabled={busy || !chosen.length} onClick={save}>{busy ? 'Saving…' : `Bank ${chosen.length || ''} item${chosen.length === 1 ? '' : 's'} on ${fmtShort(date)}`}</button>
+      </div>
+    </section>
   );
 }
 
