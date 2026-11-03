@@ -4,11 +4,13 @@ import { addDays } from '../lib/recon';
 import { loadSettings } from '../lib/data';
 import { fmtDate, fmtRange, fmtShort, money, today } from '../lib/format';
 import { PageHead, useLoad, useToast, Loading, ErrorBox, Empty, EditDialog, ReasonDialog, HistoryDialog, AdjustedMark, type FieldDef } from '../components/ui';
-import { DENOMS, denomTotal, denomInts, denomsFrom, emptyDenoms, type Denoms } from '../components/CashInput';
+import { DENOMS, denomTotal, denomInts, emptyDenoms, type Denoms } from '../components/CashInput';
 import { COINS, NOTES } from '../lib/denoms';
 
 type FloatRec = { id: string; ref: number; prepared_date: string; amount: number; date_from: string; date_to: string; unused: boolean; unused_date: string | null; note: string | null; status: 'out' | 'counted' | 'unused'; counted_date: string | null; dates_mismatch: boolean; created_at: string; updated_at: string };
 type Line = { date_from: string; date_to: string; denoms: Denoms };
+/** The standard float: 20×1p, 20×5p, 20×10p, 20×20p, 20×50p, 15×£1, 4×£5, 4×£10 = £92.20 */
+const STANDARD_FLOAT: Denoms = { c1: '20', c5: '20', c10: '20', c20: '20', c50: '20', c100: '15', n5: '4', n10: '4' };
 
 export default function FloatsPage() {
   const toast = useToast();
@@ -22,8 +24,8 @@ export default function FloatsPage() {
   const [unusedDate, setUnusedDate] = useState(today());
 
   void settings;
-  // start each float with the same coins and notes as the last float that was broken down
-  const lastDenoms = (): Denoms => { const f = (list.data ?? []).find(x => denomTotal(x as unknown as Record<string, unknown>) > 0); return f ? denomsFrom(f as unknown as Record<string, unknown>) : emptyDenoms(); };
+  // every new float starts as the standard float (£92.20); change a row if one is made up differently
+  const lastDenoms = (): Denoms => ({ ...emptyDenoms(), ...STANDARD_FLOAT });
   const nextWeek = () => { const out: Line[] = []; let d = addDays(prepared, 1); while (out.length < 6) { if (new Date(d + 'T12:00:00Z').getUTCDay() !== 6) out.push({ date_from: d, date_to: '', denoms: lastDenoms() }); d = addDays(d, 1); } return out; };
   const form = lines ?? nextWeek();
   const setLine = (i: number, k: 'date_from' | 'date_to', v: string) => setLines(form.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
@@ -49,7 +51,7 @@ export default function FloatsPage() {
         <div className="row wrap-row">
           <label className="field inline"><span>Prepared on</span><input id="f-prepared" type="date" value={prepared} onChange={e => { setPrepared(e.target.value); setLines(null); }} /></label>
         </div>
-        <p className="small muted">Number of each coin and note in each float. New floats start with the same coins and notes as your last one.</p>
+        <p className="small muted">Number of each coin and note in each float. New floats start as the standard float (£92.20); change a row if one is made up differently.</p>
         <div className="table-wrap"><table className="count-grid">
           <thead>
             <tr><th /><th /><th colSpan={COINS.length} className="grp">Coins</th><th colSpan={NOTES.length} className="grp">Notes</th><th /><th /></tr>
