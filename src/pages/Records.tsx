@@ -5,11 +5,12 @@ import { today } from '../lib/format';
 import { PageHead, Tabs, DateRange, useLoad, useToast, Loading, ErrorBox, Empty, EditDialog, ReasonDialog, HistoryDialog, Modal, type FieldDef } from '../components/ui';
 import { useDefaultRange } from './Compare';
 import { ChequeRegister, VoucherRegister } from './Registers';
+import CashBook from './CashBook';
 import { DataGrid } from '../components/DataGrid';
 import { semtekCols, cardCols, bacsCols } from '../components/columns';
 import { loadCategories, inCategoryOptions } from '../lib/data';
 
-type Tab = 'semtek' | 'cards' | 'bacs' | 'cheques' | 'vouchers';
+type Tab = 'semtek' | 'cards' | 'bacs' | 'cash' | 'cheques' | 'vouchers';
 type Rec = Record<string, unknown> & { id: string; created_at: string; updated_at: string; voided: boolean };
 
 export const CONF: Record<'semtek' | 'cards' | 'bacs', { table: string; date: string; fields: FieldDef[]; search: string[] }> = {
@@ -42,7 +43,7 @@ export default function RecordsPage() {
   const from = override?.[0] ?? dFrom, to = override?.[1] ?? dTo;
   const [tab, setTab] = useState<Tab>('semtek');
   const [search, setSearch] = useState(''); const [showVoided, setShowVoided] = useState(false);
-  const isRegister = tab === 'cheques' || tab === 'vouchers';
+  const isRegister = tab === 'cheques' || tab === 'vouchers' || tab === 'cash';
   const c = CONF[isRegister ? 'semtek' : tab];
   const list = useLoad(async () => (!isRegister && (ready || override)) ? all((a, b) => {
     let qy = supabase.from(c.table).select('*').gte(c.date, from).lte(c.date, to).order(c.date).order('created_at').range(a, b);
@@ -61,8 +62,8 @@ export default function RecordsPage() {
       <PageHead title="Records" sub="Every imported line. Adjust a figure that is wrong at source: the app keeps your corrected figure and the original in its history.">
         {!isRegister && (ready || override) && <DateRange from={from} to={to} onChange={(f, t) => { setOverride([f, t]); setRange(f, t); }} />}
       </PageHead>
-      <Tabs value={tab} onChange={setTab} items={[['semtek', 'Semtek lines'], ['cards', 'Card transactions'], ['bacs', 'BACS report lines'], ['cheques', 'Cheque register'], ['vouchers', 'Voucher register']]} />
-      {tab === 'cheques' ? <ChequeRegister /> : tab === 'vouchers' ? <VoucherRegister /> : <>
+      <Tabs value={tab} onChange={setTab} items={[['semtek', 'Semtek lines'], ['cards', 'Card transactions'], ['bacs', 'BACS report lines'], ['cash', 'Cash book'], ['cheques', 'Cheque register'], ['vouchers', 'Voucher register']]} />
+      {tab === 'cash' ? <CashBook /> : tab === 'cheques' ? <ChequeRegister /> : tab === 'vouchers' ? <VoucherRegister /> : <>
       <div className="row wrap-row toolbar">
         <input id="rec-search" className="search" placeholder="Search name, reference, amount…" value={search} onChange={e => setSearch(e.target.value)} />
         <label className="check small"><input type="checkbox" checked={showVoided} onChange={e => setShowVoided(e.target.checked)} /> Show voided</label>

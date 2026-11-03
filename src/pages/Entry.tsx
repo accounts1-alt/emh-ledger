@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { q, supabase } from '../lib/supabase';
 import { loadCategories, type Category } from '../lib/data';
 import { ENTRY_ACCOUNT_LABEL, fmtDate, money, today } from '../lib/format';
-import { PageHead, useLoad, useToast, Loading, ErrorBox, Empty, EditDialog, ReasonDialog, HistoryDialog, AdjustedMark } from '../components/ui';
+import { PageHead, useLoad, useToast, Loading, ErrorBox, Empty, EditDialog, ReasonDialog, HistoryDialog, AdjustedMark, type FieldDef } from '../components/ui';
+import { CashInput, emptyDenoms, denomTotal, denomInts, DENOMS, type Denoms } from '../components/CashInput';
 
 type EntryRec = { id: string; ref: number; entry_date: string; direction: 'in' | 'out'; account: string; category_id: string; against_pos: boolean; amount: number; reference: string | null; note: string | null; created_at: string; updated_at: string };
 const IN_ACCOUNTS = ['cash', 'cheque', 'voucher'];
@@ -14,6 +15,9 @@ export default function EntryPage() {
   const recent = useLoad(() => q(supabase.from('entries').select('*').eq('voided', false).order('entry_date', { ascending: false }).order('ref', { ascending: false }).limit(50)) as Promise<EntryRec[]>, []);
   const blank = { direction: 'in' as 'in' | 'out', entry_date: today(), account: 'cash', category_id: '', against_pos: false, amount: '', reference: '', note: '', bank: '', cheque_no: '', payer: '' };
   const [f, setF] = useState(blank);
+  const [denoms, setDenoms] = useState<Denoms>(emptyDenoms());
+  const isCash = f.account === 'cash';
+  const amount = isCash ? denomTotal(denoms) : Number(f.amount);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
   const [edit, setEdit] = useState<EntryRec | null>(null); const [voiding, setVoiding] = useState<EntryRec | null>(null); const [hist, setHist] = useState<EntryRec | null>(null);
   const catList = (cats.data ?? []).filter(c => !c.voided && c.direction === f.direction);
@@ -29,15 +33,16 @@ export default function EntryPage() {
     setBusy(true); setErr(null);
     try {
       if (!f.category_id) throw new Error('Choose a category.');
-      if (!(Number(f.amount) > 0)) throw new Error('Enter an amount above £0.');
+      if (!(amount > 0)) throw new Error(isCash ? 'Enter how many of each coin and note.' : 'Enter an amount above £0.');
       const e = await q(supabase.from('entries').insert({
         entry_date: f.entry_date, direction: f.direction, account: f.account, category_id: f.category_id,
-        against_pos: f.direction === 'in' ? f.against_pos : false, amount: Number(f.amount), reference: f.reference || null, note: f.note || null,
+        against_pos: f.direction === 'in' ? f.against_pos : false, amount, reference: f.reference || null, note: f.note || null,
+        ...(isCash ? denomInts(denoms) : {}),
       }).select('id,ref').single()) as { id: string; ref: number };
       if (f.direction === 'in' && f.account === 'cheque') {
-        await q(supabase.from('cheques').insert({ received_date: f.entry_date, bank: f.bank || null, cheque_no: f.cheque_no || null, payer: f.payer || f.reference || null, amount: Number(f.amount), entry_id: e.id, against_pos: f.against_pos, category_id: f.category_id }));
+        await q(supabase.from('cheques').insert({ received_date: f.entry_date, bank: f.bank || null, cheque_no: f.cheque_no || null, payer: f.payer || f.reference || null, amount, entry_id: e.id, against_pos: f.against_pos, category_id: f.category_id }));
       }
-      toast(`Entry #${e.ref} saved.`); setF({ ...blank, direction: f.direction, entry_date: f.entry_date }); recent.reload();
+      toast(`Entry #${e.ref} saved.`); setF({ ...blank, direction: f.direction, entry_date: f.entry_date }); setDenoms(emptyDenoms()); recent.reload();
     } catch (x) { setErr(String((x as Error).message)); }
     setBusy(false);
   };
@@ -54,7 +59,9 @@ export default function EntryPage() {
           <label className="field"><span>Date</span><input id="e-date" type="date" value={f.entry_date} onChange={e => set('entry_date', e.target.value)} /></label>
           <label className="field"><span>Account</span><select id="e-account" value={f.account} onChange={e => set('account', e.target.value)}>
             {(f.direction === 'in' ? IN_ACCOUNTS : OUT_ACCOUNTS).map(a => <option key={a} value={a}>{ENTRY_ACCOUNT_LABEL[a]}</option>)}</select></label>
-          <label className="field"><span>Amount £</span><input id="e-amount" type="number" step="0.01" min="0" value={f.amount} onChange={e => set('amount', e.target.value)} /></label>
+          {isCash
+            ? <div className="field"><span>Amount £</span><div className="calc-amount num">{money(amount)}</div></div>
+            : <label className="field"><span>Amount £</span><input id="e-amount" type="number" step="0.01" min="0" value={f.amount} onChange={e => set('amount', e.target.value)} /></label>}
           <label className="field"><span>Category</span>
             {cats.loading ? <select disabled><option>Loading…</option></select> : <select id="e-cat" value={f.category_id} onChange={e => set('category_id', e.target.value)}>
               <option value="">Choose…</option>{catList.map((c: Category) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>}
@@ -62,6 +69,7 @@ export default function EntryPage() {
           <label className="field"><span>Reference</span><input id="e-ref" value={f.reference} onChange={e => set('reference', e.target.value)} placeholder="Customer, supplier, invoice…" /></label>
           <label className="field"><span>Note</span><input id="e-note" value={f.note} onChange={e => set('note', e.target.value)} /></label>
         </div>
+        {isCash && <CashInput idPrefix="e-cash" value={denoms} onChange={setDenoms} />}
         {f.direction === 'in' && (
           <label className="check"><input id="e-pos" type="checkbox" checked={f.against_pos} onChange={e => set('against_pos', e.target.checked)} />
             <span><strong>Should be in Semtek</strong> – include in the comparison against Semtek. Untick for separate money such as a wholesale customer.</span></label>
@@ -93,7 +101,9 @@ export default function EntryPage() {
         )}
       </section>
       {edit && <EditDialog table="entries" row={edit} title={`Adjust entry #${edit.ref}`} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); recent.reload(); }}
-        fields={[{ key: 'entry_date', label: 'Date', type: 'date' }, { key: 'amount', label: 'Amount £', type: 'number' },
+        fields={[{ key: 'entry_date', label: 'Date', type: 'date' },
+          ...(edit.account === 'cash' ? DENOMS.map(([k, l]) => ({ key: k, label: `${l} (number)`, type: 'int' } as FieldDef)) : []),
+          { key: 'amount', label: edit.account === 'cash' ? 'Amount £ (worked out from the coins and notes if they are filled in)' : 'Amount £', type: 'number' },
           { key: 'category_id', label: 'Category', type: 'select', options: (cats.data ?? []).filter(c => c.direction === edit.direction && !c.voided).map(c => [c.id, c.name]) },
           ...(edit.direction === 'in' ? [{ key: 'against_pos', label: 'Should be in Semtek', type: 'bool' } as const] : []),
           { key: 'reference', label: 'Reference', type: 'text' }, { key: 'note', label: 'Note', type: 'text' }]} />}

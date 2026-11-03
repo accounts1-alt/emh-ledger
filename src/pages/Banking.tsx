@@ -3,6 +3,7 @@ import { all, q, rpc, supabase } from '../lib/supabase';
 import { fmtDate, fmtShort, money, r2, today, MERCHANT_LABEL } from '../lib/format';
 import { PageHead, Tabs, useLoad, useToast, Loading, ErrorBox, Empty, ReasonDialog, Diff } from '../components/ui';
 import type { ChequeRec } from './Posting';
+import { CashInput, emptyDenoms, denomTotal, denomInts, type Denoms } from '../components/CashInput';
 
 type Kind = 'card' | 'cheque' | 'voucher' | 'cash';
 type CardDay = { merchant: string; txn_date: string; unbanked_gross: number; unbanked_net: number; unbanked_txns: number; payout_refs: string | null };
@@ -166,7 +167,8 @@ function NewBanking({ onDone }: { onDone: () => void }) {
     return 0;
   }, [data.data, sel, kind]);
   useEffect(() => { if (!touched && kind !== 'cash') setAmount(expected ? expected.toFixed(2) : ''); }, [expected, touched, kind]);
-  const received = Number(amount) || 0;
+  const [cashDenoms, setCashDenoms] = useState<Denoms>(emptyDenoms());
+  const received = kind === 'cash' ? denomTotal(cashDenoms) : Number(amount) || 0;
 
   const save = async () => {
     setBusy(true); setErr(null);
@@ -177,8 +179,10 @@ function NewBanking({ onDone }: { onDone: () => void }) {
         const tx = await all((a, b) => supabase.from('card_txns').select('id').eq('merchant', merchant).eq('voided', false).is('banking_id', null).in('txn_date', days).range(a, b)) as { id: string }[];
         items = tx.map(t => t.id);
       } else items = [...sel];
-      if (kind === 'cash' && !(received > 0)) throw new Error('Enter the amount of cash banked.');
-      const ref = await rpc<number>('create_banking', { p_kind: kind, p_date: date, p_merchant: kind === 'card' ? merchant : null, p_amount: received, p_note: note || null, p_items: items });
+      if (kind === 'cash' && !(received > 0)) throw new Error('Enter how many of each coin and note were banked.');
+      const ref = kind === 'cash'
+        ? await rpc<number>('bank_cash', { p_date: date, p_note: note || null, p_denoms: denomInts(cashDenoms) })
+        : await rpc<number>('create_banking', { p_kind: kind, p_date: date, p_merchant: kind === 'card' ? merchant : null, p_amount: received, p_note: note || null, p_items: items });
       toast(`Banking #${ref} saved.`); onDone();
     } catch (e) { setErr(String((e as Error).message)); }
     setBusy(false);
@@ -224,13 +228,15 @@ function NewBanking({ onDone }: { onDone: () => void }) {
                   <td><input type="checkbox" checked={sel.has(v.posting_id)} onChange={() => toggle(v.posting_id)} onClick={e => e.stopPropagation()} aria-label="Select posting" /></td>
                   <td>#{v.ref}</td><td>{fmtDate(v.since)}</td><td className="r num">{money(v.gross)}</td><td className="r num">{money(v.fee)}</td><td className="r num"><strong>{money(v.net)}</strong></td></tr>))}</tbody>
             </table></div>))}
-          {kind === 'cash' && <p className="muted">Cash taken from the office to the bank. It comes off the office cash balance.</p>}
+          {kind === 'cash' && <><p className="muted">Cash taken from the office to the bank. It comes off the office cash balance.</p><CashInput idPrefix="bank-cash" value={cashDenoms} onChange={setCashDenoms} /></>}
         </>
       )}
 
       <div className="grid3">
         <label className="field"><span>In the bank on</span><input id="b-date" type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
-        <label className="field"><span>Amount received £</span><input id="b-amount" type="number" step="0.01" value={amount} onChange={e => { setTouched(true); setAmount(e.target.value); }} /></label>
+        {kind === 'cash'
+          ? <div className="field"><span>Amount banked £</span><div className="calc-amount num">{money(received)}</div></div>
+          : <label className="field"><span>Amount received £</span><input id="b-amount" type="number" step="0.01" value={amount} onChange={e => { setTouched(true); setAmount(e.target.value); }} /></label>}
         <label className="field"><span>Note</span><input id="b-note" value={note} onChange={e => setNote(e.target.value)} /></label>
       </div>
       {kind !== 'cash' && (
