@@ -9,6 +9,7 @@ type Item = {
   key: string; file: File; buf: ArrayBuffer; source: Source | ''; sniffed: Source | null;
   parsed: ParseResult | null; error: string | null; stripeConflict: string | null; confirmConflict: boolean;
   status: 'ready' | 'importing' | 'done' | 'failed'; result?: string;
+  voidedIds?: string[]; restored?: boolean;
   periodFrom: string; periodTo: string; periodFromFile: boolean;
 };
 const SOURCES: Source[] = ['semtek', 'paymentsense', 'stripe_shop', 'stripe_office', 'bacs'];
@@ -60,21 +61,25 @@ export default function ImportPage() {
       // which lines are already in the app?
       let existing = new Set<string>();
       let keyOf: (r: Record<string, unknown>) => string;
+      let ex: Record<string, unknown>[] = [];
       if (src === 'semtek') {
         keyOf = r => String(r.sale_id);
-        const ex = await all((a, b) => supabase.from('semtek_lines').select('sale_id').gte('txn_date', lo!).lte('txn_date', hi!).range(a, b)) as { sale_id: string }[];
-        existing = new Set(ex.map(e => e.sale_id));
+        ex = await all((a, b) => supabase.from('semtek_lines').select('id,voided,sale_id').gte('txn_date', lo!).lte('txn_date', hi!).range(a, b)) as Record<string, unknown>[];
+        existing = new Set(ex.map(keyOf));
       } else if (src === 'bacs') {
         keyOf = r => `${r.txn_date}|${r.description}|${Number(r.amount).toFixed(2)}|${r.occurrence}`;
-        const ex = await all((a, b) => supabase.from('bacs_lines').select('txn_date,description,amount,occurrence').gte('txn_date', lo!).lte('txn_date', hi!).range(a, b)) as Record<string, unknown>[];
+        ex = await all((a, b) => supabase.from('bacs_lines').select('id,voided,txn_date,description,amount,occurrence').gte('txn_date', lo!).lte('txn_date', hi!).range(a, b)) as Record<string, unknown>[];
         existing = new Set(ex.map(keyOf));
       } else {
         keyOf = r => `${r.merchant}|${r.ext_id}`;
         const merchants = [...new Set(rows.map(r => String(r.merchant)))];
-        const ex = await all((a, b) => supabase.from('card_txns').select('merchant,ext_id').in('merchant', merchants).gte('txn_date', lo!).lte('txn_date', hi!).range(a, b)) as Record<string, unknown>[];
+        ex = await all((a, b) => supabase.from('card_txns').select('id,voided,merchant,ext_id').in('merchant', merchants).gte('txn_date', lo!).lte('txn_date', hi!).range(a, b)) as Record<string, unknown>[];
         existing = new Set(ex.map(keyOf));
       }
       const fresh = rows.filter(r => !existing.has(keyOf(r)));
+      // lines in this file that match lines voided earlier: hidden everywhere, but still block a re-import
+      const inFile = new Set(rows.map(keyOf));
+      const voidedIds = ex.filter(e => e.voided && inFile.has(keyOf(e))).map(e => String(e.id));
       const imp = await q(supabase.from('import_files').insert({
         source: src, filename: it.file.name, rows_in_file: rows.length, rows_added: fresh.length,
         rows_duplicate: rows.length - fresh.length,
@@ -85,13 +90,23 @@ export default function ImportPage() {
         const chunk = fresh.slice(i, i + 500).map(r => ({ ...r, import_id: imp.id }));
         await q(supabase.from(TABLE[src]).upsert(chunk, { onConflict: CONFLICT[src], ignoreDuplicates: true }));
       }
-      const msg = `${fresh.length} new line${fresh.length === 1 ? '' : 's'} added${rows.length - fresh.length ? `, ${rows.length - fresh.length} already in the app` : ''}.`;
-      update(it.key, x => ({ ...x, status: 'done', result: msg }));
+      const dup = rows.length - fresh.length;
+      const msg = `${fresh.length} new line${fresh.length === 1 ? '' : 's'} added${dup ? `, ${dup} already in the app` : ''}${voidedIds.length ? ` (${voidedIds.length} of them voided earlier, so hidden)` : ''}.`;
+      update(it.key, x => ({ ...x, status: 'done', result: msg, voidedIds }));
       toast(`${SOURCE_LABEL[src]}: ${msg}`);
       hist.reload();
     } catch (e) {
       update(it.key, x => ({ ...x, status: 'failed', result: String((e as Error).message) }));
     }
+  };
+  const restore = async (it: Item) => {
+    if (!it.voidedIds?.length || !it.source) return;
+    try {
+      for (let i = 0; i < it.voidedIds.length; i += 200)
+        await q(supabase.from(TABLE[it.source]).update({ voided: false, change_reason: `Brought back by re-importing ${it.file.name}` }).in('id', it.voidedIds.slice(i, i + 200)));
+      update(it.key, x => ({ ...x, restored: true }));
+      toast(`${it.voidedIds.length} line${it.voidedIds.length === 1 ? '' : 's'} brought back.`);
+    } catch (e) { toast(String((e as Error).message)); }
   };
   const ready = items.filter(i => i.status === 'ready' && i.parsed && !i.error && (!i.stripeConflict || i.confirmConflict));
 
@@ -135,6 +150,9 @@ export default function ImportPage() {
                     )}
                     {it.status === 'importing' && 'Importing…'}
                     {it.status === 'done' && <span className="good">{it.result}</span>}
+                    {it.status === 'done' && !!it.voidedIds?.length && (it.restored
+                      ? <div className="good small">{it.voidedIds.length} voided line{it.voidedIds.length === 1 ? '' : 's'} brought back.</div>
+                      : <div><button className="ghost small" onClick={() => restore(it)}>Bring back the {it.voidedIds.length} voided line{it.voidedIds.length === 1 ? '' : 's'}</button></div>)}
                     {it.status === 'failed' && <span className="bad">{it.result}</span>}
                   </td>
                   <td className="nowrap">
