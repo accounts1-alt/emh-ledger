@@ -66,7 +66,7 @@ export default function CashBook() {
         { key: 'category_id', label: 'Category', type: 'select', options: (cats.data ?? []).filter(c => c.direction === row.direction && (!c.voided || c.id === row.category_id)).map(c => [c.id, c.name] as [string, string]) },
         { key: 'reference', label: 'Reference', type: 'text' }, { key: 'note', label: 'Note', type: 'text' }]
       : r.src === 'banking' ? [{ key: 'banking_date', label: 'Banked on', type: 'date' }, ...denomFields, { key: 'amount_received', label: 'Amount £ (worked out from the coins and notes if they are filled in)', type: 'number' }, { key: 'note', label: 'Note', type: 'text' }]
-      : [{ key: 'as_of', label: 'As of', type: 'date' }, { key: 'amount', label: 'Amount £', type: 'number' }];
+      : [{ key: 'as_of', label: 'As of', type: 'date' }, ...denomFields, { key: 'amount', label: 'Amount £ (worked out from the coins and notes if they are filled in)', type: 'number' }];
     setEdit({ table, row, title: `Adjust: ${r.what}${r.ref ? ` #${r.ref}` : ''}`, fields });
   };
 
@@ -80,7 +80,7 @@ export default function CashBook() {
         <div className="denom-strip">
           {DENOMS.map(([k, l]) => <div key={k} className={now.per[k] < 0 ? 'neg' : ''}><span>{l}</span><strong className="num">{now.per[k]}</strong></div>)}
         </div>
-        {Math.abs(now.rest) >= 0.01 && <p className="small muted">{money(now.rest)} of the balance isn't broken down into coins and notes (the opening balance, and anything entered before coins and notes were recorded).</p>}
+        {Math.abs(now.rest) >= 0.01 && <p className="small muted">{money(now.rest)} of the balance isn't broken down into coins and notes (anything entered without coins and notes).</p>}
       </section>
       <div className="row wrap-row toolbar">
         <DateRange from={from} to={to} onChange={(f, t) => setRange([f, t])} />

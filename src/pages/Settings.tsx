@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { q, rpc, supabase } from '../lib/supabase';
 import { loadCategories, loadSettings, type Category } from '../lib/data';
 import { ACCOUNTS, ACCOUNT_LABEL, fmtDate, money, today } from '../lib/format';
-import { PageHead, useLoad, useToast, Loading, ErrorBox, EditDialog, ReasonDialog, Modal } from '../components/ui';
+import { PageHead, useLoad, useToast, Loading, ErrorBox, EditDialog, ReasonDialog, Modal, type FieldDef } from '../components/ui';
+import { CashInput, DENOMS, emptyDenoms, denomTotal, denomInts, type Denoms } from '../components/CashInput';
 
 const AMOUNT_ACCOUNTS = ACCOUNTS.filter(a => !/^(cheques|vouchers)_/.test(a));
 const ITEM_ACCOUNTS = ['cheques_office', 'cheques_posted', 'vouchers_office', 'vouchers_posted'];
@@ -30,6 +31,8 @@ export default function SettingsPage() {
   const [editOpen, setEditOpen] = useState<Opening | null>(null);
   const [newOpen, setNewOpen] = useState<{ account: string; as_of: string; amount: string; payer: string; cheque_no: string; bank: string } | null>(null);
   const [itemsKey, setItemsKey] = useState(0);
+  const [openDenoms, setOpenDenoms] = useState<Denoms>(emptyDenoms());
+  const openCash = newOpen?.account === 'cash';
   const [err, setErr] = useState<string | null>(null);
 
   return (
@@ -62,7 +65,7 @@ export default function SettingsPage() {
       </section>
 
       <section className="card">
-        <div className="row between"><h2>Opening balances</h2><button className="ghost" onClick={() => setNewOpen({ account: AMOUNT_ACCOUNTS.find(a => !opening.data?.some(o => o.account === a)) ?? 'cheques_office', as_of: today(), amount: '', payer: '', cheque_no: '', bank: '' })}>+ Add opening balance</button></div>
+        <div className="row between"><h2>Opening balances</h2><button className="ghost" onClick={() => { setOpenDenoms(emptyDenoms()); setNewOpen({ account: AMOUNT_ACCOUNTS.find(a => !opening.data?.some(o => o.account === a)) ?? 'cheques_office', as_of: today(), amount: '', payer: '', cheque_no: '', bank: '' }); }}>+ Add opening balance</button></div>
         <p className="small muted">What was in each place on the day you start using the app. Cheques and vouchers are kept as items (listed under Opening cheques and vouchers) so you can post and bank them.</p>
         {opening.loading ? <Loading /> : opening.error ? <ErrorBox error={opening.error} /> : !opening.data?.length ? <p className="muted">No opening balances yet.</p> : (
           <table className="ledger"><tbody>{opening.data.map(o => (
@@ -92,13 +95,17 @@ export default function SettingsPage() {
         </div>
       </Modal>}
       {editOpen && <EditDialog table="opening_balances" row={editOpen} title={`Opening balance – ${ACCOUNT_LABEL[editOpen.account]}`} onClose={() => setEditOpen(null)} onSaved={() => { setEditOpen(null); opening.reload(); }}
-        fields={[{ key: 'as_of', label: 'As of', type: 'date' }, { key: 'amount', label: 'Amount £', type: 'number' }]} />}
+        fields={[{ key: 'as_of', label: 'As of', type: 'date' },
+          ...(editOpen.account === 'cash' ? DENOMS.map(([k, l]) => ({ key: k, label: `${l} (number)`, type: 'int' } as FieldDef)) : []),
+          { key: 'amount', label: editOpen.account === 'cash' ? 'Amount £ (worked out from the coins and notes if they are filled in)' : 'Amount £', type: 'number' }]} />}
       {newOpen && <Modal title="Add opening balance" onClose={() => setNewOpen(null)}>
         <div className="stack">
           <label className="field"><span>Account</span><select id="no-acct" value={newOpen.account} onChange={e => setNewOpen({ ...newOpen, account: e.target.value })}>
             {ACCOUNTS.filter(a => ITEM_ACCOUNTS.includes(a) || !opening.data?.some(o => o.account === a)).map(a => <option key={a} value={a}>{ACCOUNT_LABEL[a]}</option>)}</select></label>
           <label className="field"><span>As of</span><input id="no-date" type="date" value={newOpen.as_of} onChange={e => setNewOpen({ ...newOpen, as_of: e.target.value })} /></label>
-          <label className="field"><span>Amount £</span><input id="no-amt" type="number" step="0.01" value={newOpen.amount} onChange={e => setNewOpen({ ...newOpen, amount: e.target.value })} /></label>
+          {openCash
+            ? <><p className="small muted">Count the office cash by coins and notes. The amount is worked out for you.</p><CashInput idPrefix="no-cash" value={openDenoms} onChange={setOpenDenoms} /></>
+            : <label className="field"><span>Amount £</span><input id="no-amt" type="number" step="0.01" value={newOpen.amount} onChange={e => setNewOpen({ ...newOpen, amount: e.target.value })} /></label>}
           {newOpen.account.startsWith('cheques') && <div className="grid3">
             <label className="field"><span>Name on cheque</span><input id="no-payer" value={newOpen.payer} onChange={e => setNewOpen({ ...newOpen, payer: e.target.value })} placeholder="Blank = a total" /></label>
             <label className="field"><span>Cheque no.</span><input id="no-chqno" value={newOpen.cheque_no} onChange={e => setNewOpen({ ...newOpen, cheque_no: e.target.value })} /></label>
@@ -107,13 +114,13 @@ export default function SettingsPage() {
           {ITEM_ACCOUNTS.includes(newOpen.account) && <p className="small muted">{newOpen.account.endsWith('_posted') ? 'Saved as already posted, so it waits on the Banking page.' : 'Saved as in the office, so it shows on the Posting page.'} You can add several, one at a time.</p>}
           {err && <ErrorBox error={err} />}
           <div className="row end"><button className="ghost" onClick={() => setNewOpen(null)}>Cancel</button>
-            <button className="primary" disabled={newOpen.amount === ''} onClick={async () => { try {
+            <button className="primary" disabled={openCash ? !(denomTotal(openDenoms) > 0) : newOpen.amount === ''} onClick={async () => { try {
               if (ITEM_ACCOUNTS.includes(newOpen.account)) {
                 if (!(Number(newOpen.amount) > 0)) throw new Error('Enter an amount above £0.');
                 await addOpeningItem(newOpen.account, newOpen.as_of, Number(newOpen.amount), newOpen, settings.data?.voucher_fee_pct ?? 1);
                 setNewOpen({ ...newOpen, amount: '', payer: '', cheque_no: '', bank: '' }); setItemsKey(k => k + 1);
               } else {
-                await q(supabase.from('opening_balances').insert({ account: newOpen.account, as_of: newOpen.as_of, amount: Number(newOpen.amount) })); setNewOpen(null); opening.reload();
+                await q(supabase.from('opening_balances').insert({ account: newOpen.account, as_of: newOpen.as_of, ...(openCash ? { amount: denomTotal(openDenoms), ...denomInts(openDenoms) } : { amount: Number(newOpen.amount) }) })); setNewOpen(null); opening.reload();
               }
               setErr(null); toast('Opening balance saved.');
             } catch (e) { setErr(String((e as Error).message)); } }}>Save</button></div>
