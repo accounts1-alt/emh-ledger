@@ -41,18 +41,21 @@ export default function CountPage() {
   const save = async () => {
     setBusy(true); setErr(null);
     try {
-      for (const c of cheques) if (Number(c.amount) && !days.includes(c.day)) throw new Error(`A cheque is set to ${c.day || 'no day'}, which has no count row.`);
+      const chqs = cheques.filter(c => Number(c.amount));
+      for (const c of chqs) if (!c.day) throw new Error('Choose the day each cheque came in.');
+      // cheques on a day with no cash or vouchers counted are saved on their own
+      const loose = chqs.filter(c => !days.includes(c.day));
       const payload = used.map(r => ({
         date_from: r.date_from, date_to: r.date_to || r.date_from, note: r.note,
         ...Object.fromEntries(ALL.map(([k]) => [k, Number(r[k]) || 0])),
         cheques: cheques.filter(c => c.day === r.date_from && Number(c.amount)).map(c => ({ received_date: c.day, bank: c.bank, cheque_no: c.cheque_no, payer: c.payer, amount: Number(c.amount) })),
       }));
-      if (!payload.length) throw new Error('Fill in at least one day.');
-      await rpc('save_count_batch', { p_rows: payload });
-      const lo = used.reduce((a, r) => (r.date_from < a ? r.date_from : a), used[0].date_from);
-      const hi = used.reduce((a, r) => ((r.date_to || r.date_from) > a ? (r.date_to || r.date_from) : a), used[0].date_from);
-      setSaved([lo, hi]); setRows(null); setCheques([]); recent.reload();
-      toast(`Saved ${payload.length} count${payload.length > 1 ? 's' : ''}.`);
+      if (!payload.length && !loose.length) throw new Error('Fill in at least one day or one cheque.');
+      if (payload.length) await rpc('save_count_batch', { p_rows: payload });
+      if (loose.length) await q(supabase.from('cheques').insert(loose.map(c => ({ received_date: c.day, bank: c.bank || null, cheque_no: c.cheque_no || null, payer: c.payer || null, amount: Number(c.amount), against_pos: true }))));
+      const allDays = [...used.flatMap(r => [r.date_from, r.date_to || r.date_from]), ...loose.map(c => c.day)];
+      setSaved([allDays.reduce((a, d) => (d < a ? d : a)), allDays.reduce((a, d) => (d > a ? d : a))]); setRows(null); setCheques([]); recent.reload();
+      toast([payload.length ? `${payload.length} count${payload.length > 1 ? 's' : ''}` : '', loose.length ? `${loose.length} cheque${loose.length > 1 ? 's' : ''} on ${payload.length ? 'days with no cash count' : 'their own'}` : ''].filter(Boolean).join(' and ') + ' saved.');
     } catch (e) { setErr(String((e as Error).message)); }
     setBusy(false);
   };
@@ -133,7 +136,7 @@ export default function CountPage() {
       <div className="row end sticky-actions">
         <span className="muted small">{used.length} day{used.length === 1 ? '' : 's'} filled · {cheques.filter(c => Number(c.amount)).length} cheque{cheques.length === 1 ? '' : 's'}</span>
         <button className="ghost" onClick={() => { setRows(null); setCheques([]); }}>Clear</button>
-        <button className="primary" disabled={busy || !used.length} onClick={save}>{busy ? 'Saving…' : 'Save counts'}</button>
+        <button className="primary" disabled={busy || (!used.length && !cheques.some(c => Number(c.amount)))} onClick={save}>{busy ? 'Saving…' : 'Save counts'}</button>
       </div>
 
       <section className="card">
