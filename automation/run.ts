@@ -31,6 +31,11 @@ async function main() {
 
   if (what === 'semtek-discover') {
     if (!semtekConfigured()) throw new Error('The SEMTEK_SQL_HOST / SEMTEK_SQL_USER / SEMTEK_SQL_PASS secrets are missing.');
+    if (env.ZEROTIER_OK !== 'true') {
+      await log({ step: 'semtek-discover', ok: false, message: 'Could not join the shop ZeroTier network. The network admin needs to approve the robot member (see the "Join ZeroTier" step in GitHub for its address).' });
+      await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok: false }).eq('id', runId);
+      process.exitCode = 1; return;
+    }
     try {
       const d = await discoverSemtek();
       await log({ step: 'semtek-discover', ok: true, version: d.version, database: d.database, databases: d.databases, likely: d.likely, views: d.views, tables: d.tables });
