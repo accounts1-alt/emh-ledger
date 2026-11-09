@@ -18,18 +18,22 @@ export interface ReportData {
   chequesWaiting: { received_date: string; payer: string | null; cheque_no: string | null; amount: number }[];
   vouchersWaiting: { received_date: string; amount: number }[];
   pulls: PullResult[];
+  semtekOpen: { changed: number; missing: number };
 }
 
 export async function gatherReport(day: string, pulls: PullResult[]): Promise<ReportData> {
   const from = addDays(day, -13);
-  const [compare, coverage, counts, floats, cheques, vouchers] = await Promise.all([
+  const [compare, coverage, counts, floats, cheques, vouchers, semChanged, semMissing] = await Promise.all([
     loadCompare(from, day), loadCoverage(),
     q(supabase.from('counts').select('date_to').eq('voided', false).order('date_to', { ascending: false }).limit(1)) as Promise<{ date_to: string }[]>,
     q(supabase.from('v_float_status').select('ref,date_from,date_to,amount,status').eq('status', 'out').lt('date_to', addDays(day, -7)).order('date_from')) as Promise<ReportData['floatsOut']>,
     all((a, b) => supabase.from('cheques').select('received_date,payer,cheque_no,amount').eq('voided', false).eq('status', 'office').lt('received_date', addDays(day, -7)).order('received_date').range(a, b)) as Promise<ReportData['chequesWaiting']>,
     all((a, b) => supabase.from('voucher_lots').select('received_date,amount').eq('voided', false).is('posting_id', null).lt('received_date', addDays(day, -7)).order('received_date').range(a, b)) as Promise<ReportData['vouchersWaiting']>,
+    supabase.from('semtek_lines').select('id', { count: 'exact', head: true }).not('semtek_change', 'is', null).eq('voided', false),
+    supabase.from('semtek_lines').select('id', { count: 'exact', head: true }).not('semtek_missing_since', 'is', null).eq('semtek_missing_ack', false).eq('voided', false),
   ]);
-  return { day, from, compare, coverage, lastCount: counts[0]?.date_to ?? null, floatsOut: floats, chequesWaiting: cheques, vouchersWaiting: vouchers, pulls };
+  return { day, from, compare, coverage, lastCount: counts[0]?.date_to ?? null, floatsOut: floats, chequesWaiting: cheques, vouchersWaiting: vouchers, pulls,
+    semtekOpen: { changed: semChanged.count ?? 0, missing: semMissing.count ?? 0 } };
 }
 
 // ---------- rendering (pure, so it can be tested without a database) ----------
@@ -79,7 +83,7 @@ export function renderReport(r: ReportData): { subject: string; html: string; pr
   const behind = Object.keys(SOURCE_LABEL).filter(s => (latest.get(s) ?? '') < r.day).map(s => `${SOURCE_LABEL[s]} (${latest.get(s) ? 'up to ' + dayName(latest.get(s)!) : 'nothing yet'})`);
   if (!r.lastCount || r.lastCount < r.day) behind.push(`Weekly count (${r.lastCount ? 'counted up to ' + dayName(r.lastCount) : 'none yet'})`);
 
-  const n = problems.length + pullFailed.length;
+  const n = problems.length + pullFailed.length + (r.semtekOpen?.changed ?? 0) + (r.semtekOpen?.missing ?? 0);
   const subject = `${dayName(r.day)}: ${n ? `${n} problem${n === 1 ? '' : 's'}` : 'everything matches'}${reminders ? ` · ${reminders} reminder${reminders === 1 ? '' : 's'}` : ''} – Em H takings`;
   const parts: string[] = [];
   parts.push(`<h1 style="font-size:20px;margin:0 0 4px">Takings report for ${new Date(r.day + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}</h1>`);
@@ -116,6 +120,19 @@ export function renderReport(r: ReportData): { subject: string; html: string; pr
   lines('Card payments with no partner', cardsLoose, 'Card machine');
   lines('Cheques with no partner', chequesLoose, 'Cheques received');
   lines('BACS with no partner', bacsLoose, 'Bank');
+
+  // lines changed or deleted in Semtek
+  const semPull = r.pulls.find(x => x.source === 'semtek') as (PullResult & { changes?: { date: string; type: string; who: string; fields: [string, string, string][] }[] }) | undefined;
+  const auto = semPull?.changes ?? [];
+  const open = (r.semtekOpen?.changed ?? 0) + (r.semtekOpen?.missing ?? 0);
+  if (auto.length || open) {
+    parts.push(h2('Changed in Semtek'));
+    if (auto.length) {
+      parts.push(p('Changed at the till after they were downloaded. You hadn’t touched them, so the app now has Semtek’s new figures (old ones are in the change history).', true));
+      parts.push(table(['Day', 'Line', 'What changed'], auto.map(c => [dayName(c.date), esc(`${c.type}${c.who ? ' · ' + c.who : ''}`), c.fields.map(([f, a, b]) => `${esc(f)}: ${esc(a)} → <strong>${esc(b)}</strong>`).join('<br>')])));
+    }
+    if (open) parts.push(p(`<strong>${open} line${open === 1 ? '' : 's'} need${open === 1 ? 's' : ''} your decision</strong>${r.semtekOpen.changed ? ` – ${r.semtekOpen.changed} changed in Semtek after you’d adjusted ${r.semtekOpen.changed === 1 ? 'it' : 'them'}` : ''}${r.semtekOpen.missing ? `${r.semtekOpen.changed ? ',' : ' –'} ${r.semtekOpen.missing} deleted at the till` : ''}. <a href="${APP_URL}/#dashboard">Open the dashboard</a> to choose.`));
+  }
 
   if (behind.length) {
     parts.push(h2('Not loaded up to yesterday yet'));

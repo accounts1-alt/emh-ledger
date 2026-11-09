@@ -4,6 +4,7 @@ import { addDays, daysBetween } from '../lib/recon';
 import { ACCOUNTS, ACCOUNT_LABEL, MERCHANT_LABEL, fmtDate, fmtShort, money, r2, today } from '../lib/format';
 import { SOURCE_LABEL, type Source } from '../lib/parsers';
 import { PageHead, useLoad, Loading, ErrorBox } from '../components/ui';
+import { SemtekChanges } from '../components/SemtekChanges';
 
 type Expected = { kind: string; since: string; merchant: string | null; gross: number; fee: number; net: number; items: number; ref: number | null };
 
@@ -77,6 +78,8 @@ export default function Dashboard() {
             {!expected.length && <tr><td className="muted" colSpan={2}>Nothing waiting. Everything posted or taken by card has been banked.</td></tr>}
           </tbody></table>
         </section>
+
+        <SemtekChanges />
 
         <section className="card span2">
           <h2>Needs attention {issues.length ? <span className="chip short">{issues.length}</span> : <span className="chip ok">all clear</span>}</h2>

@@ -300,3 +300,5 @@ table.ledger td:first-child, table.ledger th:first-child { white-space: normal; 
 .table-wrap table td.denom-col, .table-wrap table th.denom-col { padding-left: 6px; padding-right: 6px; }
 tr.not-broken td { font-style: italic; }
 @media (max-width: 900px) { .denom-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.sem-change { border-top: 1px solid var(--line, #e5e5e5); padding: 10px 0 4px; }
+.sem-change:first-of-type { border-top: 0; }
