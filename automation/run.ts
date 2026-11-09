@@ -1,5 +1,5 @@
 // The nightly robot. Run by GitHub Actions (.github/workflows/nightly.yml):
-//   npx tsx automation/run.ts [both|pull|report|semtek-discover|semtek-compare|paymentsense-explore]
+//   npx tsx automation/run.ts [both|pull|report|semtek-discover|semtek-compare|paymentsense-test]
 // Secrets (GitHub → Settings → Secrets and variables → Actions):
 //   SUPABASE_SECRET_KEY   required – lets the robot write to the app
 //   STRIPE_SHOP_KEY       Stripe Shop restricted key (read: charges, customers, balance)
@@ -14,7 +14,7 @@ import { supabase } from '../src/lib/supabase';
 import { addDays } from '../src/lib/recon';
 import { pullStripe, STRIPE_LABEL, type PullResult } from './stripe';
 import { gatherReport, renderReport } from './report';
-import { explorePaymentsense, paymentsenseConfigured } from './paymentsense';
+import { pullPaymentsense, paymentsenseConfigured } from './paymentsense';
 import { discoverSemtek, compareSemtek, semtekConfigured, networkCheck, pullSemtek } from './semtek';
 
 const env = process.env;
@@ -31,12 +31,12 @@ async function main() {
   const steps: Record<string, unknown>[] = [];
   const log = async (s: Record<string, unknown>) => { steps.push(s); console.log(JSON.stringify(s)); await supabase.from('robot_runs').update({ steps }).eq('id', runId); };
 
-  if (what === 'paymentsense-explore') {
+  if (what === 'paymentsense-test') {
     let ok = true;
-    if (!paymentsenseConfigured()) { await log({ step: 'ps-explore', ok: false, message: 'PAYMENTSENSE_EMAIL (or the robot mailbox SMTP_USER / SMTP_PASS) secret is missing.' }); ok = false; }
+    if (!paymentsenseConfigured()) { await log({ step: 'paymentsense-test', ok: false, message: 'PAYMENTSENSE_EMAIL (or the robot mailbox SMTP_USER / SMTP_PASS) secret is missing.' }); ok = false; }
     else {
-      try { await explorePaymentsense(log); }
-      catch (e) { ok = false; await log({ step: 'ps-explore', ok: false, message: (e as Error).message.split('\n').slice(0, 6).join(' | ') }); }
+      try { await log({ step: 'paymentsense-test', ...(await pullPaymentsense(yesterday, true, log)) }); }
+      catch (e) { ok = false; await log({ step: 'paymentsense-test', ok: false, message: (e as Error).message.split('\n').slice(0, 6).join(' | ') }); }
     }
     await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
     if (!ok) process.exitCode = 1;
@@ -76,6 +76,15 @@ async function main() {
       catch (e) { res = { source: acct, label: STRIPE_LABEL[acct], ok: false, from, to: yesterday, added: 0, updated: 0, seen: 0, message: (e as Error).message }; }
       pulls.push(res); await log({ step: 'pull', ...res });
     }
+    // Paymentsense, through its website (login link arrives in the robot mailbox)
+    let ps: PullResult;
+    if (!paymentsenseConfigured()) ps = { source: 'paymentsense', label: 'Paymentsense', ok: false, from: yesterday, to: yesterday, added: 0, updated: 0, seen: 0, message: 'Not set up yet (no PAYMENTSENSE_EMAIL).' };
+    else {
+      try { ps = await pullPaymentsense(yesterday); }
+      catch (e) { ps = { source: 'paymentsense', label: 'Paymentsense', ok: false, from: yesterday, to: yesterday, added: 0, updated: 0, seen: 0, message: `Couldn’t download from Paymentsense: ${(e as Error).message.split('\n')[0]}` }; }
+    }
+    pulls.push(ps); await log({ step: 'pull', ...ps });
+
     // Semtek, over the shop's ZeroTier network
     let sem: PullResult;
     const semBase = { source: 'semtek', label: 'Semtek', from: yesterday, to: yesterday, added: 0, updated: 0, seen: 0 };

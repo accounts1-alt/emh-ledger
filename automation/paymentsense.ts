@@ -1,9 +1,12 @@
 // Paymentsense: logs in to myaccount.paymentsense.com with the emailed "Log in now" link.
 // The login email is forwarded from your inbox to the robot mailbox (IONOS), which the robot reads over IMAP.
-// Step 1 (now): "explore" logs in and records what the pages look like, so the download clicks can be written.
+// Each night it downloads "Last week" and "This week" as CSV and adds what the app doesn't have yet.
 import { chromium, type Page } from 'playwright-core';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
+import { guessPeriod, parseFile, type CardRow } from '../src/lib/parsers';
+import { all, q, supabase } from '../src/lib/supabase';
+import type { PullResult } from './stripe';
 
 const env = process.env;
 export const PS_LOGIN_URL = 'https://myaccount.paymentsense.com/login';
@@ -61,76 +64,102 @@ async function snapshot(page: Page, label: string) {
   return { label, url: page.url(), ...info, screenshot_jpeg_base64: shot };
 }
 
-/** Log in with the emailed link and record the first pages. */
-export async function explorePaymentsense(log: (s: Record<string, unknown>) => Promise<void>) {
+type Log = (s: Record<string, unknown>) => Promise<void>;
+
+/** Log in: type the email, wait for the forwarded "Log in now" email, open its link. */
+async function login(page: Page, log?: Log) {
+  await page.goto(PS_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  const email = page.locator('input[type=email]').first();
+  await email.fill(env.PAYMENTSENSE_EMAIL!, { timeout: 30000 });
+  const since = new Date();
+  await page.getByRole('button', { name: /next/i }).first().click({ timeout: 10000 }).catch(() => email.press('Enter'));
+  await page.getByText(/head over to your inbox/i).first().waitFor({ timeout: 30000 }).catch(() => undefined);
+  const { link } = await waitForLoginLink(since);
+  await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForURL(/myaccount\.paymentsense\.com\/(home|transactions)/, { timeout: 60000 });
+  if (log) await log({ step: 'ps', label: 'logged in' });
+}
+
+/** On the Transactions page: choose a date range (Today / Yesterday / This week / Last week / This month), apply, export CSV. */
+async function exportRange(page: Page, choice: string): Promise<{ filename: string; buf: ArrayBuffer }> {
+  await page.goto('https://myaccount.paymentsense.com/transactions', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(5000);
+  await closePopups(page);
+  await page.locator('[aria-label="view filters menu" i]').first().click({ timeout: 15000 });
+  await page.waitForTimeout(1500);
+  await page.locator('mat-form-field').filter({ hasText: /date range/i }).first().click({ timeout: 15000 })
+    .catch(() => page.getByText(/^\s*date range\s*$/i).first().click({ timeout: 10000 }));
+  await page.waitForTimeout(1500);
+  await page.getByText(new RegExp(`^\\s*${choice}\\s*$`, 'i')).last().click({ timeout: 10000 });
+  await page.getByRole('button', { name: /^\s*done\s*$/i }).first().click({ timeout: 10000 }).catch(() => undefined);
+  await page.waitForTimeout(1000);
+  await page.getByRole('button', { name: /^\s*apply\s*$/i }).first().click({ timeout: 10000 });
+  await page.waitForTimeout(6000);
+  await closePopups(page);
+  await page.locator('[aria-label="export transactions" i]').first().click({ timeout: 15000 });
+  await page.waitForTimeout(1500);
+  const dl = page.waitForEvent('download', { timeout: 90000 });
+  await page.getByText(/csv export/i).first().click({ timeout: 10000 });
+  const d = await dl;
+  const path = await d.path();
+  const b = (await import('node:fs')).readFileSync(path!);
+  return { filename: d.suggestedFilename(), buf: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer };
+}
+
+export interface PsFile { choice: string; filename: string; lines: number; period: [string, string] | null; head: string[] }
+
+/** Download "Last week" and "This week" as CSV. */
+export async function downloadPaymentsense(log?: Log): Promise<{ files: (PsFile & { buf: ArrayBuffer })[] }> {
   const browser = await chromium.launch();
   try {
-    const ctx = await browser.newContext({ viewport: { width: 1366, height: 900 }, locale: 'en-GB', timezoneId: 'Europe/London' });
+    const ctx = await browser.newContext({ viewport: { width: 1366, height: 900 }, locale: 'en-GB', timezoneId: 'Europe/London', acceptDownloads: true });
     const page = await ctx.newPage();
-    await page.goto(PS_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await log({ step: 'ps-explore', ...(await snapshot(page, 'login page')) });
-
-    const email = page.locator('input[type=email], input[name*=mail i], input[id*=mail i], input[autocomplete=username]').first();
-    await email.fill(env.PAYMENTSENSE_EMAIL!, { timeout: 30000 });
-    const since = new Date();
-    const submit = page.locator('button[type=submit], button:has-text("Continue"), button:has-text("Log in"), button:has-text("Send")').first();
-    if (await submit.count()) await submit.click(); else await email.press('Enter');
-    await page.waitForTimeout(4000);
-    await log({ step: 'ps-explore', ...(await snapshot(page, 'after asking for the login email')) });
-
-    const { link, subject, from } = await waitForLoginLink(since);
-    await log({ step: 'ps-explore', label: 'login email found', subject, from, link_host: new URL(link).host });
-    await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(6000);
-    await log({ step: 'ps-explore', ...(await snapshot(page, 'after opening the login link')) });
-
-    await page.goto('https://myaccount.paymentsense.com/transactions', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(6000);
-    await page.getByRole('button', { name: /dismiss/i }).first().click({ timeout: 3000 }).catch(() => undefined);
-    await log({ step: 'ps-explore', ...(await snapshot(page, 'transactions page')) });
-    // how the two icon buttons are built, so they can be found reliably
-    const icons = await page.evaluate(`Array.from(document.querySelectorAll('[aria-label],[mattooltip],[title]')).map(e => e.tagName.toLowerCase() + ' aria=' + (e.getAttribute('aria-label') || '') + ' tip=' + (e.getAttribute('mattooltip') || e.getAttribute('title') || '') + ' class=' + (e.getAttribute('class') || '').slice(0, 60)).slice(0, 40)`);
-    await log({ step: 'ps-explore', label: 'labelled elements', icons });
-    await closePopups(page, log);
-
-    // the filters menu: date range
-    await page.locator('[aria-label="view filters menu" i]').first().click({ timeout: 15000 });
-    await page.waitForTimeout(2000);
-    const field = page.locator('mat-form-field').filter({ hasText: /date range/i }).first();
-    const dateSel = (await field.count()) ? field.locator('mat-select, [role=combobox], [role=button]').first() : page.getByText(/^\s*today\s*$/i).first();
-    await dateSel.click({ timeout: 15000 });
-    await page.waitForTimeout(1500);
-    const options = await page.locator('mat-option, [role=option], mat-radio-button, [role=radio], mat-list-option, mat-chip, .mat-menu-item, [role=menuitem]').allInnerTexts();
-    // how the filters panel is built, and what the click on Date range opened
-    const html = await page.evaluate(`(() => {
-      const clean = el => el.outerHTML.replace(/<!--.*?-->/g, '').replace(/ _ngcontent-[a-z0-9-]+=""/g, '').replace(/ _nghost-[a-z0-9-]+=""/g, '').replace(/<svg[\\s\\S]*?<\\/svg>/g, '<svg/>').replace(/\\s+/g, ' ');
-      const panel = Array.from(document.querySelectorAll('*')).find(e => /^\\s*Filters/.test(e.innerText || '') && (e.innerText || '').includes('Date range') && e.children.length > 2 && (e.innerText || '').length < 400);
-      const overlays = Array.from(document.querySelectorAll('.cdk-overlay-pane, [role=dialog], [role=listbox], mat-calendar, .mat-datepicker-content'));
-      return { panel: panel ? clean(panel).slice(0, 5000) : 'not found', overlays: overlays.map(o => clean(o).slice(0, 2500)) };
-    })()`);
-    await log({ step: 'ps-explore', ...(await snapshot(page, 'after clicking date range')), options: options.map(o => o.trim()), ...(html as object), screenshot_jpeg_base64: undefined });
-    const pick = ['last 7 days', '7 days', 'last week', 'yesterday'].map(w => options.findIndex(o => o.toLowerCase().includes(w))).find(i => i >= 0);
-    if (pick === undefined) { await log({ step: 'ps-explore', label: 'no suitable date choice' }); return; }
-    await page.locator('mat-option, [role=option]').nth(pick).click();
-    await page.waitForTimeout(1500);
-    await log({ step: 'ps-explore', ...(await snapshot(page, `chose "${options[pick].trim()}"`)), screenshot_jpeg_base64: undefined });
-    await page.getByRole('button', { name: /^\s*apply\s*$/i }).first().click({ timeout: 10000 });
-    await page.waitForTimeout(6000);
-    await closePopups(page);
-
-    // export as CSV
-    await page.locator('[aria-label="export transactions" i]').first().click({ timeout: 15000 });
-    await page.waitForTimeout(1500);
-    const download = page.waitForEvent('download', { timeout: 60000 }).catch(() => null);
-    await page.getByText(/csv export/i).first().click({ timeout: 10000 });
-    const d = await download;
-    if (d) {
-      const path = await d.path();
-      const body = path ? (await import('node:fs')).readFileSync(path, 'utf8') : '';
-      const lines = body.split(/\r?\n/).filter(Boolean);
-      await log({ step: 'ps-explore', label: 'CSV downloaded', filename: d.suggestedFilename(), lines: lines.length, head: lines.slice(0, 3), tail: lines.slice(-2) });
-    } else await log({ step: 'ps-explore', ...(await snapshot(page, 'no CSV download within 60s')) });
+    await login(page, log);
+    const files: (PsFile & { buf: ArrayBuffer })[] = [];
+    for (const choice of ['Last week', 'This week']) {
+      const { filename, buf } = await exportRange(page, choice);
+      const text = new TextDecoder().decode(buf);
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      files.push({ choice, filename, buf, lines: lines.length - 1, period: guessPeriod('paymentsense', buf, filename), head: lines.slice(0, 2) });
+    }
+    return { files };
   } finally { await browser.close(); }
+}
+
+/** Nightly: download, then add card payments the app doesn't have yet (same checks as the Import page). `test` = read only. */
+export async function pullPaymentsense(yesterday: string, test = false, log?: Log): Promise<PullResult & { files?: PsFile[]; by_day?: Record<string, unknown> }> {
+  const base = { source: 'paymentsense', label: 'Paymentsense', added: 0, updated: 0, seen: 0 };
+  const settings = await q(supabase.from('settings').select('key,value').eq('voided', false)) as { key: string; value: unknown }[];
+  const amexPct = Number(settings.find(x => x.key === 'amex_fee_pct')?.value ?? 1.9);
+  const { files } = await downloadPaymentsense(log);
+  const all_: CardRow[] = []; const seenKey = new Set<string>();
+  let from = yesterday;
+  for (const f of files) {
+    const parsed = parseFile('paymentsense', f.buf, f.filename, amexPct);
+    for (const r of parsed.rows as CardRow[]) {
+      const k = `${r.merchant}|${r.ext_id}`;
+      if (seenKey.has(k) || r.txn_date > yesterday) continue; // today's come tomorrow
+      seenKey.add(k); all_.push(r);
+    }
+    if (f.period && f.period[0] < from) from = f.period[0];
+  }
+  for (const r of all_) if (r.txn_date < from) from = r.txn_date;
+  const existing = await all((a, b) => supabase.from('card_txns').select('merchant,ext_id').in('merchant', ['paymentsense', 'amex']).gte('txn_date', from).lte('txn_date', yesterday).range(a, b)) as { merchant: string; ext_id: string }[];
+  const have = new Set(existing.map(e => `${e.merchant}|${e.ext_id}`));
+  const fresh = all_.filter(r => !have.has(`${r.merchant}|${r.ext_id}`));
+  const byDay: Record<string, { lines: number; total: number; new: number }> = {};
+  for (const r of all_) { const d = (byDay[r.txn_date] ??= { lines: 0, total: 0, new: 0 }); d.lines++; d.total = Math.round((d.total + r.amount) * 100) / 100; }
+  for (const r of fresh) byDay[r.txn_date].new++;
+  const info = { files: files.map(({ buf: _b, ...f }) => f), by_day: byDay };
+  if (test) return { ...base, ok: true, from, to: yesterday, seen: all_.length, added: 0, message: `Test only: ${all_.length} card payments read, ${fresh.length} would be added.`, ...info };
+
+  const imp = await q(supabase.from('import_files').insert({
+    source: 'paymentsense', filename: 'Nightly pull (Paymentsense)', rows_in_file: all_.length, rows_added: fresh.length, rows_duplicate: all_.length - fresh.length, date_from: from, date_to: yesterday,
+  }).select('id').single()) as { id: string };
+  for (let i = 0; i < fresh.length; i += 500)
+    await q(supabase.from('card_txns').upsert(fresh.slice(i, i + 500).map(r => ({ ...r, import_id: imp.id })), { onConflict: 'merchant,ext_id', ignoreDuplicates: true }));
+  return { ...base, ok: true, from, to: yesterday, seen: all_.length, added: fresh.length,
+    message: `${fresh.length} new card payment${fresh.length === 1 ? '' : 's'}${all_.length - fresh.length ? `, ${all_.length - fresh.length} already in the app` : ''}.`, ...info };
 }
 
 /** Close any pop-up (Angular Material dialog / overlay) covering the page, recording what it said. */
