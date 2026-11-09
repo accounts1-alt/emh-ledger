@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       what:
-        description: 'both = download then email, pull = download only, report = email only, semtek-discover = list the Semtek database tables, semtek-compare = check the database against imported Semtek files'
+        description: 'both = download then email, pull = download only, report = email only, semtek-discover = list the Semtek database tables, semtek-compare = check the database against imported Semtek files, paymentsense-explore = log in to Paymentsense and record the pages'
         default: both
         type: choice
-        options: [both, pull, report, semtek-discover, semtek-compare]
+        options: [both, pull, report, semtek-discover, semtek-compare, paymentsense-explore]
       day:
         description: 'Report on this day (YYYY-MM-DD). Leave blank for yesterday.'
         required: false
@@ -30,6 +30,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Install browser (for Paymentsense)
+        if: inputs.what == 'paymentsense-explore'
+        run: npx playwright-core install --with-deps chromium
       # joins the shop's ZeroTier network for this run only, as the robot's own member (approved once by the network admin)
       - name: Join ZeroTier
         id: zt
@@ -68,6 +71,8 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           REPORT_TO: ${{ secrets.REPORT_TO }}
+          PAYMENTSENSE_EMAIL: ${{ secrets.PAYMENTSENSE_EMAIL }}
+          IMAP_HOST: ${{ secrets.IMAP_HOST }}
           SEMTEK_SQL_HOST: ${{ secrets.SEMTEK_SQL_HOST }}
           SEMTEK_SQL_PORT: ${{ secrets.SEMTEK_SQL_PORT }}
           SEMTEK_SQL_DB: ${{ secrets.SEMTEK_SQL_DB }}
