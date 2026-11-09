@@ -202,7 +202,7 @@ export async function networkCheck() {
  * and never goes back before the first day the app holds Semtek for (so deleted older history isn't brought back).
  */
 /** Trial mode: work out and list what the change-tracking would do, without changing existing lines. Switched off once checked. */
-export const SYNC_TRIAL = true;
+export const SYNC_TRIAL = false;
 
 export async function pullSemtek(yesterday: string): Promise<PullResult & { manual_matches?: unknown[]; changes?: SyncChange[]; trial?: unknown }> {
   const trial = { would_update: [] as SyncChange[], would_ask: [] as unknown[], would_flag_missing: [] as unknown[] };
@@ -244,8 +244,13 @@ export async function pullSemtek(yesterday: string): Promise<PullResult & { manu
       await write(() => q(supabase.from('semtek_lines').update({ ...pick(r, SYNC), src: sem, semtek_change: null, change_reason: reason.slice(0, 900) }).eq('id', cur.id)));
       (SYNC_TRIAL ? trial.would_update : changes).push({ id: r.sale_id, type: r.type, date: r.txn_date, who: who(r), fields: diff.map(f => [LABEL[f] ?? f, show(f, was[f]), show(f, sem[f])]) });
     } else {
-      // rule 2: you adjusted it too, so keep yours and ask
-      const change = { seen: today, fields: Object.fromEntries(diff.map(f => [f, { before: was[f], semtek: sem[f], yours: mine[f] }])) };
+      // rule 2: you adjusted it too. Where you and Semtek now agree there's nothing to ask; only ask about real disagreements.
+      const ask = diff.filter(f => !MINOR.has(f) && !same(f, mine[f], sem[f]));
+      if (!ask.length) { // same change made in both places: remember Semtek's new figures, keep yours as they are
+        await write(() => q(supabase.from('semtek_lines').update({ src: sem, semtek_change: null }).eq('id', cur.id)));
+        continue;
+      }
+      const change = { seen: today, fields: Object.fromEntries(ask.map(f => [f, { before: was[f], semtek: sem[f], yours: mine[f] }])) };
       if (JSON.stringify(cur.semtek_change?.fields ?? null) !== JSON.stringify(change.fields)) {
         await write(() => q(supabase.from('semtek_lines').update({ semtek_change: change }).eq('id', cur.id)));
         if (SYNC_TRIAL) trial.would_ask.push({ id: r.sale_id, type: r.type, date: r.txn_date, ...change.fields }); else conflictsNew++;
@@ -284,6 +289,8 @@ type AppLine = { id: string; sale_id: string; type: string; txn_date: string; am
   semtek_change: { fields: Record<string, unknown> } | null; semtek_missing_since: string | null; semtek_missing_ack: boolean } & Record<string, unknown>;
 export type SyncChange = { id: string; type: string; date: string; who: string; fields: [string, string, string][] };
 const SYNC = ['txn_at', 'txn_date', 'station', 'operator', 'customer_id', 'account_no', 'last_name', 'first_name', 'company', 'cash', 'cheque', 'credit_card', 'vouchers', 'coupons', 'bacs', 'account', 'on_account', 'off_account', 'amount', 'notes'] as const;
+/** Change by itself when a line is re-saved in the back office; never worth a question. */
+const MINOR = new Set(['station', 'operator']);
 const MONEY = new Set(['cash', 'cheque', 'credit_card', 'vouchers', 'coupons', 'bacs', 'account', 'on_account', 'off_account', 'amount']);
 const LABEL: Record<string, string> = { txn_at: 'time', txn_date: 'date', credit_card: 'card', on_account: 'on account', off_account: 'off account', account_no: 'account no', customer_id: 'customer', last_name: 'name', first_name: 'first name' };
 /** Normalised Semtek figures for a line (matches semtek_src() in the database). */
