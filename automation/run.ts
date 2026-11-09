@@ -36,7 +36,7 @@ async function main() {
     if (!paymentsenseConfigured()) { await log({ step: 'ps-explore', ok: false, message: 'PAYMENTSENSE_EMAIL (or the robot mailbox SMTP_USER / SMTP_PASS) secret is missing.' }); ok = false; }
     else {
       try { await explorePaymentsense(log); }
-      catch (e) { ok = false; await log({ step: 'ps-explore', ok: false, message: (e as Error).message }); }
+      catch (e) { ok = false; await log({ step: 'ps-explore', ok: false, message: (e as Error).message.split('\n').slice(0, 6).join(' | ') }); }
     }
     await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
     if (!ok) process.exitCode = 1;

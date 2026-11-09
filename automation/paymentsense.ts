@@ -91,6 +91,7 @@ export async function explorePaymentsense(log: (s: Record<string, unknown>) => P
     // how the two icon buttons are built, so they can be found reliably
     const icons = await page.evaluate(`Array.from(document.querySelectorAll('[aria-label],[mattooltip],[title]')).map(e => e.tagName.toLowerCase() + ' aria=' + (e.getAttribute('aria-label') || '') + ' tip=' + (e.getAttribute('mattooltip') || e.getAttribute('title') || '') + ' class=' + (e.getAttribute('class') || '').slice(0, 60)).slice(0, 40)`);
     await log({ step: 'ps-explore', label: 'labelled elements', icons });
+    await closePopups(page, log);
 
     // the filters menu (dates, locations)
     await page.locator('[aria-label="view filters menu" i], [aria-label*="filter" i]').first().click({ timeout: 15000 });
@@ -98,6 +99,7 @@ export async function explorePaymentsense(log: (s: Record<string, unknown>) => P
     await log({ step: 'ps-explore', ...(await snapshot(page, 'filters menu open')) });
     await page.keyboard.press('Escape');
     await page.waitForTimeout(1500);
+    await closePopups(page, log);
 
     // the export button: either a dialog or a download straight away
     const download = page.waitForEvent('download', { timeout: 25000 }).catch(() => null);
@@ -111,4 +113,20 @@ export async function explorePaymentsense(log: (s: Record<string, unknown>) => P
       await log({ step: 'ps-explore', label: 'export downloaded', filename: d.suggestedFilename(), lines: body.split(/\r?\n/).length, head: body.split(/\r?\n/).slice(0, 4) });
     } else await log({ step: 'ps-explore', label: 'no download within 25s of clicking export' });
   } finally { await browser.close(); }
+}
+
+/** Close any pop-up (Angular Material dialog / overlay) covering the page, recording what it said. */
+export async function closePopups(page: Page, log?: (s: Record<string, unknown>) => Promise<void>) {
+  for (let i = 0; i < 4; i++) {
+    const backdrop = page.locator('.cdk-overlay-backdrop-showing');
+    if (!(await backdrop.count())) return;
+    const pane = page.locator('.cdk-overlay-pane').last();
+    const said = await pane.innerText().catch(() => '');
+    const buttons = await pane.locator('button, a').allInnerTexts().catch(() => [] as string[]);
+    if (log) await log({ step: 'ps-explore', label: 'pop-up found', said: said.replace(/\s+/g, ' ').slice(0, 600), buttons });
+    const close = pane.locator('button').filter({ hasText: /close|dismiss|ok|got it|no thanks|not now|continue|accept|×|✕/i }).first();
+    if (await close.count()) await close.click({ timeout: 5000 }).catch(() => undefined);
+    else { await page.keyboard.press('Escape'); await backdrop.first().click({ position: { x: 5, y: 5 }, timeout: 3000, force: true }).catch(() => undefined); }
+    await page.waitForTimeout(1500);
+  }
 }
