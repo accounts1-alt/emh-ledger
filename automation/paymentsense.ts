@@ -84,12 +84,16 @@ export async function explorePaymentsense(log: (s: Record<string, unknown>) => P
     await page.waitForTimeout(6000);
     await log({ step: 'ps-explore', ...(await snapshot(page, 'after opening the login link')) });
 
-    await page.getByRole('button', { name: /^transactions$/i }).first().click();
-    await page.waitForTimeout(5000);
+    await page.goto('https://myaccount.paymentsense.com/transactions', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(6000);
     await page.getByRole('button', { name: /dismiss/i }).first().click({ timeout: 3000 }).catch(() => undefined);
+    await log({ step: 'ps-explore', ...(await snapshot(page, 'transactions page')) });
+    // how the two icon buttons are built, so they can be found reliably
+    const icons = await page.evaluate(`Array.from(document.querySelectorAll('[aria-label],[mattooltip],[title]')).map(e => e.tagName.toLowerCase() + ' aria=' + (e.getAttribute('aria-label') || '') + ' tip=' + (e.getAttribute('mattooltip') || e.getAttribute('title') || '') + ' class=' + (e.getAttribute('class') || '').slice(0, 60)).slice(0, 40)`);
+    await log({ step: 'ps-explore', label: 'labelled elements', icons });
 
     // the filters menu (dates, locations)
-    await page.getByRole('button', { name: /view filters menu/i }).first().click();
+    await page.locator('[aria-label="view filters menu" i], [aria-label*="filter" i]').first().click({ timeout: 15000 });
     await page.waitForTimeout(2500);
     await log({ step: 'ps-explore', ...(await snapshot(page, 'filters menu open')) });
     await page.keyboard.press('Escape');
@@ -97,7 +101,7 @@ export async function explorePaymentsense(log: (s: Record<string, unknown>) => P
 
     // the export button: either a dialog or a download straight away
     const download = page.waitForEvent('download', { timeout: 25000 }).catch(() => null);
-    await page.getByRole('button', { name: /export transactions/i }).first().click();
+    await page.locator('[aria-label="export transactions" i], [aria-label*="export" i]').first().click({ timeout: 15000 });
     await page.waitForTimeout(3000);
     await log({ step: 'ps-explore', ...(await snapshot(page, 'after clicking export')) });
     const d = await download;
