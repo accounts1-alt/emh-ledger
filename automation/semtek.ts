@@ -10,17 +10,28 @@ const env = process.env;
 
 export function semtekConfigured() { return !!(env.SEMTEK_SQL_HOST && env.SEMTEK_SQL_USER && env.SEMTEK_SQL_PASS); }
 
+/** Connect, retrying for a couple of minutes: a fresh ZeroTier member can take a while to find a route to the shop. */
 export async function semtekConnect(database = env.SEMTEK_SQL_DB || undefined) {
+  let last: unknown;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try { return await connectOnce(database); }
+    catch (e) { last = e; console.log(`Semtek connect attempt ${attempt} failed: ${(e as Error).message}`); await new Promise(r => setTimeout(r, 15000)); }
+  }
+  throw new Error(`${(last as Error).message} (tried 5 times over ~3 minutes; is DATA-PC on, and is your own PC disconnected from the Shop network?)`);
+}
+
+async function connectOnce(database?: string) {
   // "10.147.17.5\SQLEXPRESS" = a named instance; "10.147.17.5" or "10.147.17.5,1433" = host and port
   const raw = env.SEMTEK_SQL_HOST!.trim();
   const [hostPort, instanceName] = raw.split('\\');
   const [server, portText] = hostPort.split(/[,:]/);
   const port = Number(env.SEMTEK_SQL_PORT || portText) || undefined;
-  return sql.connect({
+  const pool = new sql.ConnectionPool({
     server, port: instanceName && !port ? undefined : port ?? 1433, database, user: env.SEMTEK_SQL_USER!, password: env.SEMTEK_SQL_PASS!,
     connectionTimeout: 30000, requestTimeout: 120000,
     options: { encrypt: false, trustServerCertificate: true, instanceName: instanceName || undefined },
   });
+  return pool.connect();
 }
 
 export interface Discovery {
