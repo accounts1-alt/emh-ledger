@@ -84,14 +84,27 @@ export async function explorePaymentsense(log: (s: Record<string, unknown>) => P
     await page.waitForTimeout(6000);
     await log({ step: 'ps-explore', ...(await snapshot(page, 'after opening the login link')) });
 
-    for (const name of ['Transactions', 'Reports', 'Statements']) {
-      const nav = page.getByRole('link', { name: new RegExp(name, 'i') }).or(page.getByRole('button', { name: new RegExp(name, 'i') })).first();
-      if (await nav.count()) {
-        await nav.click().catch(() => undefined);
-        await page.waitForTimeout(6000);
-        await log({ step: 'ps-explore', ...(await snapshot(page, `after clicking ${name}`)) });
-        break;
-      }
-    }
+    await page.getByRole('button', { name: /^transactions$/i }).first().click();
+    await page.waitForTimeout(5000);
+    await page.getByRole('button', { name: /dismiss/i }).first().click({ timeout: 3000 }).catch(() => undefined);
+
+    // the filters menu (dates, locations)
+    await page.getByRole('button', { name: /view filters menu/i }).first().click();
+    await page.waitForTimeout(2500);
+    await log({ step: 'ps-explore', ...(await snapshot(page, 'filters menu open')) });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(1500);
+
+    // the export button: either a dialog or a download straight away
+    const download = page.waitForEvent('download', { timeout: 25000 }).catch(() => null);
+    await page.getByRole('button', { name: /export transactions/i }).first().click();
+    await page.waitForTimeout(3000);
+    await log({ step: 'ps-explore', ...(await snapshot(page, 'after clicking export')) });
+    const d = await download;
+    if (d) {
+      const path = await d.path();
+      const body = path ? (await import('node:fs')).readFileSync(path, 'utf8') : '';
+      await log({ step: 'ps-explore', label: 'export downloaded', filename: d.suggestedFilename(), lines: body.split(/\r?\n/).length, head: body.split(/\r?\n/).slice(0, 4) });
+    } else await log({ step: 'ps-explore', label: 'no download within 25s of clicking export' });
   } finally { await browser.close(); }
 }
