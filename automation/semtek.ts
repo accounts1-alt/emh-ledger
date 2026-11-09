@@ -113,7 +113,8 @@ export function toRows(raw: Awaited<ReturnType<typeof readSemtekRaw>>): SemtekRo
     const at = stamp(r.Date as Date), amt = n(r.Amount);
     out.push({ sale_id: s(r.PaymentID), type: 'Payment', txn_at: at, txn_date: at.slice(0, 10), station: s(r.Station), ...cust(r),
       cash: n(r.Cash), cheque: n(r.Cheque), credit_card: n(r.CreditCard), vouchers: n(r.Vouchers), coupons: n(r.Coupons), bacs: n(r.Bacs),
-      account: -amt, on_account: 0, off_account: amt, amount: amt, notes: s(r.Notes) });
+      // as the export shows it: a normal payment is all 'off account'; a refund (minus amount) shows the minus on account and the plus off account
+      account: -amt, on_account: amt < 0 ? amt : 0, off_account: amt < 0 ? -amt : amt, amount: amt, notes: s(r.Notes) });
   }
   return out;
 }
@@ -200,7 +201,12 @@ export async function networkCheck() {
  * Reads the last 60 days by sale date, plus anything keyed in during the last 14 days but dated earlier,
  * and never goes back before the first day the app holds Semtek for (so deleted older history isn't brought back).
  */
-export async function pullSemtek(yesterday: string): Promise<PullResult & { manual_matches?: unknown[] }> {
+/** Trial mode: work out and list what the change-tracking would do, without changing existing lines. Switched off once checked. */
+export const SYNC_TRIAL = true;
+
+export async function pullSemtek(yesterday: string): Promise<PullResult & { manual_matches?: unknown[]; changes?: SyncChange[]; trial?: unknown }> {
+  const trial = { would_update: [] as SyncChange[], would_ask: [] as unknown[], would_flag_missing: [] as unknown[] };
+  const write = async (fn: () => PromiseLike<unknown>) => { if (!SYNC_TRIAL) await fn(); };
   const base = { source: 'semtek', label: 'Semtek', added: 0, updated: 0, seen: 0 };
   const firstImp = await q(supabase.from('import_files').select('date_from').eq('source', 'semtek').eq('voided', false).order('date_from').limit(1)) as { date_from: string }[];
   const floor = firstImp[0]?.date_from ?? addDays(yesterday, -59);
@@ -208,23 +214,85 @@ export async function pullSemtek(yesterday: string): Promise<PullResult & { manu
   const raw = await readSemtekRaw(from, yesterday, addDays(yesterday, -13), floor);
   const rows = toRows(raw);
   const lo = rows.reduce((m, r) => (r.txn_date < m ? r.txn_date : m), from);
-  const app = await all((a, b) => supabase.from('semtek_lines').select('sale_id,type,txn_date,amount,manual,voided').gte('txn_date', lo).range(a, b)) as { sale_id: string; type: string; txn_date: string; amount: number; manual: boolean; voided: boolean }[];
-  const have = new Set(app.map(r => `${r.sale_id}|${r.type}`));
+  const app = await all((a, b) => supabase.from('semtek_lines').select('*').gte('txn_date', lo).range(a, b)) as AppLine[];
+  const appByKey = new Map(app.filter(r => !r.manual).map(r => [`${r.sale_id}|${r.type}`, r]));
   const manual = app.filter(r => r.manual && !r.voided);
   const fresh: SemtekRow[] = []; const manualMatches: unknown[] = [];
+  const today = addDays(yesterday, 1);
+  const changes: SyncChange[] = []; let conflictsNew = 0;
+
   for (const r of rows) {
-    if (have.has(`${r.sale_id}|${r.type}`)) continue;
-    // a line you added by hand for this one: don't add it twice
-    const i = manual.findIndex(m => m.type === r.type && m.txn_date === r.txn_date && Math.abs(Number(m.amount) - r.amount) < 0.005);
-    if (i >= 0) { manual.splice(i, 1); manualMatches.push({ id: r.sale_id, type: r.type, date: r.txn_date, amount: r.amount }); continue; }
-    fresh.push(r);
+    const cur = appByKey.get(`${r.sale_id}|${r.type}`);
+    if (!cur) {
+      // a line you added by hand for this one: don't add it twice
+      const i = manual.findIndex(m => m.type === r.type && m.txn_date === r.txn_date && Math.abs(Number(m.amount) - r.amount) < 0.005);
+      if (i >= 0) { manual.splice(i, 1); manualMatches.push({ id: r.sale_id, type: r.type, date: r.txn_date, amount: r.amount }); continue; }
+      fresh.push(r); continue;
+    }
+    if (cur.voided) continue; // you voided it: leave it alone
+    const sem = srcOf(r), was = (cur.src ?? srcOf(cur as unknown as SemtekRow)) as Src, mine = srcOf(cur as unknown as SemtekRow);
+    if (cur.semtek_missing_since) await write(() => q(supabase.from('semtek_lines').update({ semtek_missing_since: null }).eq('id', cur.id)));
+    const diff = SYNC.filter(f => !same(f, sem[f], was[f]));
+    if (!diff.length) { // Semtek unchanged since the last download (or changed back)
+      if (cur.semtek_change) await write(() => q(supabase.from('semtek_lines').update({ semtek_change: null }).eq('id', cur.id)));
+      continue;
+    }
+    const youAdjusted = SYNC.some(f => !same(f, mine[f], was[f]));
+    if (!youAdjusted) {
+      // rule 1: you haven't touched it, so take Semtek's new figures (recorded in the change history)
+      const reason = 'Changed in Semtek: ' + diff.map(f => `${LABEL[f] ?? f} ${show(f, was[f])} → ${show(f, sem[f])}`).join('; ');
+      await write(() => q(supabase.from('semtek_lines').update({ ...pick(r, SYNC), src: sem, semtek_change: null, change_reason: reason.slice(0, 900) }).eq('id', cur.id)));
+      (SYNC_TRIAL ? trial.would_update : changes).push({ id: r.sale_id, type: r.type, date: r.txn_date, who: who(r), fields: diff.map(f => [LABEL[f] ?? f, show(f, was[f]), show(f, sem[f])]) });
+    } else {
+      // rule 2: you adjusted it too, so keep yours and ask
+      const change = { seen: today, fields: Object.fromEntries(diff.map(f => [f, { before: was[f], semtek: sem[f], yours: mine[f] }])) };
+      if (JSON.stringify(cur.semtek_change?.fields ?? null) !== JSON.stringify(change.fields)) {
+        await write(() => q(supabase.from('semtek_lines').update({ semtek_change: change }).eq('id', cur.id)));
+        if (SYNC_TRIAL) trial.would_ask.push({ id: r.sale_id, type: r.type, date: r.txn_date, ...change.fields }); else conflictsNew++;
+      }
+    }
   }
+  // rule 3: in the app but no longer in Semtek (deleted at the till): flag it, never delete
+  const inSemtek = new Set(rows.map(r => `${r.sale_id}|${r.type}`));
+  let missingNew = 0;
+  for (const cur of appByKey.values()) {
+    if (cur.voided || cur.semtek_missing_ack || cur.semtek_missing_since || cur.txn_date < from || cur.txn_date > yesterday) continue;
+    if (inSemtek.has(`${cur.sale_id}|${cur.type}`)) continue;
+    await write(() => q(supabase.from('semtek_lines').update({ semtek_missing_since: today }).eq('id', cur.id)));
+    if (SYNC_TRIAL) trial.would_flag_missing.push({ id: cur.sale_id, type: cur.type, date: cur.txn_date, amount: cur.amount }); else missingNew++;
+  }
+
   const imp = await q(supabase.from('import_files').insert({
     source: 'semtek', filename: 'Nightly pull (Semtek database)', rows_in_file: rows.length, rows_added: fresh.length, rows_duplicate: rows.length - fresh.length, date_from: from, date_to: yesterday,
   }).select('id').single()) as { id: string };
   for (let i = 0; i < fresh.length; i += 500)
     await q(supabase.from('semtek_lines').upsert(fresh.slice(i, i + 500).map(r => ({ ...r, import_id: imp.id })), { onConflict: 'sale_id,type', ignoreDuplicates: true }));
-  const backdated = fresh.filter(r => r.txn_date < addDays(yesterday, -1)).length;
-  return { ...base, ok: true, from, to: yesterday, added: fresh.length, seen: rows.length, manual_matches: manualMatches,
-    message: `${fresh.length} new line${fresh.length === 1 ? '' : 's'}${backdated ? ` (${backdated} dated earlier than yesterday)` : ''}${manualMatches.length ? `, ${manualMatches.length} skipped because you'd added them by hand` : ''}.` };
+  const backdated = fresh.filter(r => r.txn_date < yesterday).length;
+  const bits = [`${fresh.length} new line${fresh.length === 1 ? '' : 's'}${backdated ? ` (${backdated} dated before yesterday)` : ''}`];
+  if (changes.length) bits.push(`${changes.length} changed in Semtek and updated`);
+  if (conflictsNew) bits.push(`${conflictsNew} changed in Semtek but you'd adjusted them (your decision needed)`);
+  if (missingNew) bits.push(`${missingNew} no longer in Semtek (your decision needed)`);
+  if (manualMatches.length) bits.push(`${manualMatches.length} skipped because you'd added them by hand`);
+  if (SYNC_TRIAL && (trial.would_update.length || trial.would_ask.length || trial.would_flag_missing.length))
+    bits.push(`change-tracking trial: would update ${trial.would_update.length}, ask about ${trial.would_ask.length}, flag ${trial.would_flag_missing.length} as deleted (nothing changed yet)`);
+  return { ...base, ok: true, from, to: yesterday, added: fresh.length, updated: changes.length, seen: rows.length, manual_matches: manualMatches, changes, trial: SYNC_TRIAL ? trial : undefined, message: bits.join(', ') + '.' };
 }
+
+// ---------- keeping lines in step with Semtek ----------
+type Src = Record<string, string | number>;
+type AppLine = { id: string; sale_id: string; type: string; txn_date: string; amount: number; manual: boolean; voided: boolean; src: Src | null;
+  semtek_change: { fields: Record<string, unknown> } | null; semtek_missing_since: string | null; semtek_missing_ack: boolean } & Record<string, unknown>;
+export type SyncChange = { id: string; type: string; date: string; who: string; fields: [string, string, string][] };
+const SYNC = ['txn_at', 'txn_date', 'station', 'operator', 'customer_id', 'account_no', 'last_name', 'first_name', 'company', 'cash', 'cheque', 'credit_card', 'vouchers', 'coupons', 'bacs', 'account', 'on_account', 'off_account', 'amount', 'notes'] as const;
+const MONEY = new Set(['cash', 'cheque', 'credit_card', 'vouchers', 'coupons', 'bacs', 'account', 'on_account', 'off_account', 'amount']);
+const LABEL: Record<string, string> = { txn_at: 'time', txn_date: 'date', credit_card: 'card', on_account: 'on account', off_account: 'off account', account_no: 'account no', customer_id: 'customer', last_name: 'name', first_name: 'first name' };
+/** Normalised Semtek figures for a line (matches semtek_src() in the database). */
+function srcOf(r: SemtekRow): Src {
+  const o: Src = {};
+  for (const f of SYNC) o[f] = MONEY.has(f) ? n(r[f]) : f === 'txn_at' ? s(r[f]).replace('T', ' ').slice(0, 19) : f === 'txn_date' ? s(r[f]).slice(0, 10) : s(r[f]).replace(/\r\n/g, '\n');
+  return o;
+}
+const same = (f: string, a: unknown, b: unknown) => (MONEY.has(f) ? Math.abs(n(a) - n(b)) < 0.005 : srcOf({ [f]: a } as unknown as SemtekRow)[f] === srcOf({ [f]: b } as unknown as SemtekRow)[f]);
+const show = (f: string, v: unknown) => (MONEY.has(f) ? `£${n(v).toFixed(2)}` : s(v) || '(blank)');
+const pick = (r: SemtekRow, fields: readonly string[]) => Object.fromEntries(fields.map(f => [f, (r as unknown as Record<string, unknown>)[f]]));
+const who = (r: SemtekRow) => [r.last_name, r.account_no].filter(x => x && x !== '0').join(', ');
