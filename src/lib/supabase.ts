@@ -2,7 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 
 export const SUPABASE_URL = 'https://bcdibbhmiwccvvmryqze.supabase.co';
 export const SUPABASE_KEY = 'sb_publishable_YAtej3hTvSDPHPLQVYk-Ig_K4rxgiYr';
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true } });
+// The nightly robot runs this same code on a server with a secret key; the website always uses the publishable key and the user's login.
+const serverKey = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env?.SUPABASE_SECRET_KEY;
+export const supabase = createClient(SUPABASE_URL, serverKey || SUPABASE_KEY, { auth: { persistSession: !serverKey, autoRefreshToken: !serverKey } });
 
 type Res<T> = { data: T | null; error: { message: string } | null };
 

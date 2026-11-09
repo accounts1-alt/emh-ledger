@@ -1,0 +1,39 @@
+name: Nightly pull and morning report
+
+on:
+  schedule:
+    # 04:47 UTC every day = 04:47 in winter, 05:47 in summer (UK). GitHub can start it up to ~30 min late.
+    - cron: '47 4 * * *'
+  workflow_dispatch:
+    inputs:
+      what:
+        description: 'both = download then email, pull = download only, report = email only'
+        default: both
+        type: choice
+        options: [both, pull, report]
+      day:
+        description: 'Report on this day (YYYY-MM-DD). Leave blank for yesterday.'
+        required: false
+
+concurrency: nightly
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsx automation/run.ts ${{ inputs.what || 'both' }}
+        env:
+          REPORT_DAY: ${{ inputs.day }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          STRIPE_SHOP_KEY: ${{ secrets.STRIPE_SHOP_KEY }}
+          STRIPE_OFFICE_KEY: ${{ secrets.STRIPE_OFFICE_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          REPORT_TO: ${{ secrets.REPORT_TO }}

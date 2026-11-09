@@ -1,0 +1,61 @@
+// The nightly robot. Run by GitHub Actions (.github/workflows/nightly.yml):
+//   npx tsx automation/run.ts [both|pull|report]
+// Secrets (GitHub → Settings → Secrets and variables → Actions):
+//   SUPABASE_SECRET_KEY   required – lets the robot write to the app
+//   STRIPE_SHOP_KEY       Stripe Shop restricted key (read: charges, customers, balance)
+//   STRIPE_OFFICE_KEY     Stripe Office restricted key
+//   SMTP_USER, SMTP_PASS  the robot Gmail address and its app password (sends the email)
+//   REPORT_TO             where the morning report goes (several: separate with commas)
+import nodemailer from 'nodemailer';
+import { supabase } from '../src/lib/supabase';
+import { addDays } from '../src/lib/recon';
+import { pullStripe, STRIPE_LABEL, type PullResult } from './stripe';
+import { gatherReport, renderReport } from './report';
+
+const env = process.env;
+const what = (process.argv[2] || 'both').toLowerCase();
+const londonToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+const yesterday = env.REPORT_DAY || addDays(londonToday(), -1);
+const PULL_DAYS = 7; // re-read a week each night: catches a missed night and late refunds
+
+async function main() {
+  if (!env.SUPABASE_SECRET_KEY) throw new Error('The SUPABASE_SECRET_KEY secret is missing, so the robot can’t reach the app.');
+  const run = await supabase.from('robot_runs').insert({ what, report_for: yesterday }).select('id').single();
+  if (run.error) throw new Error(`Can’t reach the app: ${run.error.message}`);
+  const runId = (run.data as { id: number }).id;
+  const steps: Record<string, unknown>[] = [];
+  const log = async (s: Record<string, unknown>) => { steps.push(s); console.log(JSON.stringify(s)); await supabase.from('robot_runs').update({ steps }).eq('id', runId); };
+
+  const pulls: PullResult[] = [];
+  if (what === 'both' || what === 'pull') {
+    const from = addDays(yesterday, -(PULL_DAYS - 1));
+    for (const [acct, key] of [['stripe_shop', env.STRIPE_SHOP_KEY], ['stripe_office', env.STRIPE_OFFICE_KEY]] as const) {
+      let res: PullResult;
+      try { res = await pullStripe(acct, key, from, yesterday); }
+      catch (e) { res = { source: acct, label: STRIPE_LABEL[acct], ok: false, from, to: yesterday, added: 0, updated: 0, seen: 0, message: (e as Error).message }; }
+      pulls.push(res); await log({ step: 'pull', ...res });
+    }
+  }
+
+  const ok = pulls.every(p => p.ok || p.message.startsWith('Not set up'));
+  if (what === 'both' || what === 'report') {
+    const rep = renderReport(await gatherReport(yesterday, pulls));
+    let emailed: string | null = null;
+    if (env.SMTP_USER && env.SMTP_PASS && env.REPORT_TO) {
+      const mail = nodemailer.createTransport({ host: env.SMTP_HOST || 'smtp.gmail.com', port: 465, secure: true, auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } });
+      await mail.sendMail({ from: `Em H ledger <${env.SMTP_USER}>`, to: env.REPORT_TO, subject: rep.subject, html: rep.html });
+      emailed = env.REPORT_TO;
+      await log({ step: 'email', ok: true, to: emailed, subject: rep.subject });
+    } else {
+      await log({ step: 'email', ok: false, message: 'Email not set up yet (SMTP_USER / SMTP_PASS / REPORT_TO). Report saved in the app only.', subject: rep.subject });
+    }
+    await supabase.from('robot_runs').update({ report_html: rep.html, emailed_to: emailed }).eq('id', runId);
+  }
+  await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
+  if (!ok) process.exitCode = 1;
+}
+
+main().catch(async e => {
+  console.error(e);
+  process.exitCode = 1;
+});
