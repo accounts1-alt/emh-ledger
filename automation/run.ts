@@ -4,7 +4,7 @@
 //   SUPABASE_SECRET_KEY   required – lets the robot write to the app
 //   STRIPE_SHOP_KEY       Stripe Shop restricted key (read: charges, customers, balance)
 //   STRIPE_OFFICE_KEY     Stripe Office restricted key
-//   SMTP_USER, SMTP_PASS  the robot Gmail address and its app password (sends the email)
+//   SMTP_USER, SMTP_PASS  the robot mailbox (IONOS) address and password (sends the email); SMTP_HOST to use another provider
 //   REPORT_TO             where the morning report goes (several: separate with commas)
 import nodemailer from 'nodemailer';
 import { supabase } from '../src/lib/supabase';
@@ -42,7 +42,7 @@ async function main() {
     const rep = renderReport(await gatherReport(yesterday, pulls));
     let emailed: string | null = null;
     if (env.SMTP_USER && env.SMTP_PASS && env.REPORT_TO) {
-      const mail = nodemailer.createTransport({ host: env.SMTP_HOST || 'smtp.gmail.com', port: 465, secure: true, auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } });
+      const mail = nodemailer.createTransport({ host: env.SMTP_HOST || 'smtp.ionos.co.uk', port: 465, secure: true, auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } });
       await mail.sendMail({ from: `Em H ledger <${env.SMTP_USER}>`, to: env.REPORT_TO, subject: rep.subject, html: rep.html });
       emailed = env.REPORT_TO;
       await log({ step: 'email', ok: true, to: emailed, subject: rep.subject });

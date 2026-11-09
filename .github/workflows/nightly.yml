@@ -34,6 +34,7 @@ jobs:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           STRIPE_SHOP_KEY: ${{ secrets.STRIPE_SHOP_KEY }}
           STRIPE_OFFICE_KEY: ${{ secrets.STRIPE_OFFICE_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           REPORT_TO: ${{ secrets.REPORT_TO }}
