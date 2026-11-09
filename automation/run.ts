@@ -13,7 +13,7 @@ import { supabase } from '../src/lib/supabase';
 import { addDays } from '../src/lib/recon';
 import { pullStripe, STRIPE_LABEL, type PullResult } from './stripe';
 import { gatherReport, renderReport } from './report';
-import { discoverSemtek, compareSemtek, semtekConfigured } from './semtek';
+import { discoverSemtek, compareSemtek, semtekConfigured, networkCheck } from './semtek';
 
 const env = process.env;
 const what = (process.argv[2] || 'both').toLowerCase();
@@ -46,7 +46,7 @@ async function main() {
       }
       await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok: true }).eq('id', runId);
     } catch (e) {
-      await log({ step: what, ok: false, message: (e as Error).message });
+      await log({ step: what, ok: false, message: (e as Error).message, network: await networkCheck().catch(x => String(x)) });
       await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok: false }).eq('id', runId);
       process.exitCode = 1;
     }

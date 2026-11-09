@@ -2,6 +2,10 @@
 // "discover" reads only the layout; "compare" checks the database against lines already imported from Semtek files.
 // Only payment columns are read (never card details or customer contact data).
 import sql from 'mssql';
+import { execSync } from 'node:child_process';
+import dgram from 'node:dgram';
+import net from 'node:net';
+
 import { all, supabase } from '../src/lib/supabase';
 import { round2, type SemtekRow } from '../src/lib/parsers';
 
@@ -142,4 +146,42 @@ export async function compareSemtek(from: string, to: string) {
     only_in_db: { count: onlyDb.length, sample: onlyDb.slice(0, 8).map(r => ({ id: r.sale_id, type: r.type, at: r.txn_at, amount: r.amount })) },
     only_in_app: { count: onlyApp.length, sample: onlyApp.slice(0, 8).map(r => ({ id: r.sale_id, type: r.type, at: r.txn_at, amount: r.amount, voided: r.voided })) },
   };
+}
+
+// ---------- network check (recorded in the run log when the connection fails) ----------
+
+const sh = (cmd: string) => { try { return execSync(cmd, { timeout: 20000, encoding: 'utf8' }).trim(); } catch (e) { return `FAILED: ${String((e as { stdout?: string }).stdout ?? '').trim() || (e as Error).message.split('\n')[0]}`; } };
+
+/** Ask SQL Server Browser (UDP 1434) which TCP port an instance listens on. */
+function browserPort(host: string, instance: string): Promise<string> {
+  return new Promise(resolve => {
+    const sock = dgram.createSocket('udp4');
+    const t = setTimeout(() => { sock.close(); resolve('no answer from SQL Browser on UDP 1434'); }, 8000);
+    sock.on('message', m => { clearTimeout(t); sock.close(); const txt = m.subarray(3).toString('ascii'); const block = txt.split(';;').find(b => b.toUpperCase().includes(`INSTANCENAME;${instance.toUpperCase()};`)) ?? txt; resolve(block); });
+    sock.send(Buffer.from([0x03]), 1434, host);
+  });
+}
+const tcpOpen = (host: string, port: number) => new Promise<string>(resolve => {
+  const c = net.connect({ host, port, timeout: 8000 }, () => { c.destroy(); resolve('open'); });
+  c.on('timeout', () => { c.destroy(); resolve('timeout'); }); c.on('error', e => resolve(`error: ${e.message}`));
+});
+
+export async function networkCheck() {
+  const raw = env.SEMTEK_SQL_HOST!.trim();
+  const [hostPort, instance] = raw.split('\\');
+  const host = hostPort.split(/[,:]/)[0];
+  const out: Record<string, unknown> = {
+    robot_zt: sh('sudo zerotier-cli info'),
+    networks: sh('sudo zerotier-cli listnetworks'),
+    ping: sh(`ping -c 3 -W 2 ${host} | tail -2`),
+    peers_direct: sh(`sudo zerotier-cli peers | grep -c DIRECT`),
+  };
+  if (instance) {
+    const b = await browserPort(host, instance);
+    out.sql_browser = b;
+    const m = /tcp;(\d+)/i.exec(b);
+    if (m) out[`tcp_${m[1]}`] = await tcpOpen(host, Number(m[1]));
+  }
+  out.tcp_1433 = await tcpOpen(host, 1433);
+  return out;
 }
