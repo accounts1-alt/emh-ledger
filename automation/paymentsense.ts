@@ -100,8 +100,15 @@ export async function explorePaymentsense(log: (s: Record<string, unknown>) => P
     const dateSel = (await field.count()) ? field.locator('mat-select, [role=combobox], [role=button]').first() : page.getByText(/^\s*today\s*$/i).first();
     await dateSel.click({ timeout: 15000 });
     await page.waitForTimeout(1500);
-    const options = await page.locator('mat-option, [role=option]').allInnerTexts();
-    await log({ step: 'ps-explore', label: 'date range choices', options: options.map(o => o.trim()) });
+    const options = await page.locator('mat-option, [role=option], mat-radio-button, [role=radio], mat-list-option, mat-chip, .mat-menu-item, [role=menuitem]').allInnerTexts();
+    // how the filters panel is built, and what the click on Date range opened
+    const html = await page.evaluate(`(() => {
+      const clean = el => el.outerHTML.replace(/<!--.*?-->/g, '').replace(/ _ngcontent-[a-z0-9-]+=""/g, '').replace(/ _nghost-[a-z0-9-]+=""/g, '').replace(/<svg[\\s\\S]*?<\\/svg>/g, '<svg/>').replace(/\\s+/g, ' ');
+      const panel = Array.from(document.querySelectorAll('*')).find(e => /^\\s*Filters/.test(e.innerText || '') && (e.innerText || '').includes('Date range') && e.children.length > 2 && (e.innerText || '').length < 400);
+      const overlays = Array.from(document.querySelectorAll('.cdk-overlay-pane, [role=dialog], [role=listbox], mat-calendar, .mat-datepicker-content'));
+      return { panel: panel ? clean(panel).slice(0, 5000) : 'not found', overlays: overlays.map(o => clean(o).slice(0, 2500)) };
+    })()`);
+    await log({ step: 'ps-explore', ...(await snapshot(page, 'after clicking date range')), options: options.map(o => o.trim()), ...(html as object), screenshot_jpeg_base64: undefined });
     const pick = ['last 7 days', '7 days', 'last week', 'yesterday'].map(w => options.findIndex(o => o.toLowerCase().includes(w))).find(i => i >= 0);
     if (pick === undefined) { await log({ step: 'ps-explore', label: 'no suitable date choice' }); return; }
     await page.locator('mat-option, [role=option]').nth(pick).click();
