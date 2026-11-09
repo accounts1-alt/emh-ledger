@@ -93,25 +93,36 @@ export async function explorePaymentsense(log: (s: Record<string, unknown>) => P
     await log({ step: 'ps-explore', label: 'labelled elements', icons });
     await closePopups(page, log);
 
-    // the filters menu (dates, locations)
-    await page.locator('[aria-label="view filters menu" i], [aria-label*="filter" i]').first().click({ timeout: 15000 });
-    await page.waitForTimeout(2500);
-    await log({ step: 'ps-explore', ...(await snapshot(page, 'filters menu open')) });
-    await page.keyboard.press('Escape');
+    // the filters menu: date range
+    await page.locator('[aria-label="view filters menu" i]').first().click({ timeout: 15000 });
+    await page.waitForTimeout(2000);
+    const field = page.locator('mat-form-field').filter({ hasText: /date range/i }).first();
+    const dateSel = (await field.count()) ? field.locator('mat-select, [role=combobox], [role=button]').first() : page.getByText(/^\s*today\s*$/i).first();
+    await dateSel.click({ timeout: 15000 });
     await page.waitForTimeout(1500);
-    await closePopups(page, log);
+    const options = await page.locator('mat-option, [role=option]').allInnerTexts();
+    await log({ step: 'ps-explore', label: 'date range choices', options: options.map(o => o.trim()) });
+    const pick = ['last 7 days', '7 days', 'last week', 'yesterday'].map(w => options.findIndex(o => o.toLowerCase().includes(w))).find(i => i >= 0);
+    if (pick === undefined) { await log({ step: 'ps-explore', label: 'no suitable date choice' }); return; }
+    await page.locator('mat-option, [role=option]').nth(pick).click();
+    await page.waitForTimeout(1500);
+    await log({ step: 'ps-explore', ...(await snapshot(page, `chose "${options[pick].trim()}"`)), screenshot_jpeg_base64: undefined });
+    await page.getByRole('button', { name: /^\s*apply\s*$/i }).first().click({ timeout: 10000 });
+    await page.waitForTimeout(6000);
+    await closePopups(page);
 
-    // the export button: either a dialog or a download straight away
-    const download = page.waitForEvent('download', { timeout: 25000 }).catch(() => null);
-    await page.locator('[aria-label="export transactions" i], [aria-label*="export" i]').first().click({ timeout: 15000 });
-    await page.waitForTimeout(3000);
-    await log({ step: 'ps-explore', ...(await snapshot(page, 'after clicking export')) });
+    // export as CSV
+    await page.locator('[aria-label="export transactions" i]').first().click({ timeout: 15000 });
+    await page.waitForTimeout(1500);
+    const download = page.waitForEvent('download', { timeout: 60000 }).catch(() => null);
+    await page.getByText(/csv export/i).first().click({ timeout: 10000 });
     const d = await download;
     if (d) {
       const path = await d.path();
       const body = path ? (await import('node:fs')).readFileSync(path, 'utf8') : '';
-      await log({ step: 'ps-explore', label: 'export downloaded', filename: d.suggestedFilename(), lines: body.split(/\r?\n/).length, head: body.split(/\r?\n/).slice(0, 4) });
-    } else await log({ step: 'ps-explore', label: 'no download within 25s of clicking export' });
+      const lines = body.split(/\r?\n/).filter(Boolean);
+      await log({ step: 'ps-explore', label: 'CSV downloaded', filename: d.suggestedFilename(), lines: lines.length, head: lines.slice(0, 3), tail: lines.slice(-2) });
+    } else await log({ step: 'ps-explore', ...(await snapshot(page, 'no CSV download within 60s')) });
   } finally { await browser.close(); }
 }
 
