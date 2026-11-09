@@ -43,18 +43,20 @@ export async function waitForLoginLink(since: Date, timeoutMs = 240000): Promise
 /** What a page looks like, for working out the clicks: address, headings, buttons, links, inputs and a small screenshot. */
 async function snapshot(page: Page, label: string) {
   await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => undefined);
-  const info = await page.evaluate(() => {
-    const vis = (e: Element) => { const r = (e as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-    const txt = (e: Element) => ((e as HTMLElement).innerText || e.getAttribute('aria-label') || e.getAttribute('title') || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+  // passed as plain text: the code runner adds helpers to compiled functions that don't exist inside the browser
+  const info = await page.evaluate(`(() => {
+    const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const txt = e => (e.innerText || e.getAttribute('aria-label') || e.getAttribute('title') || '').trim().replace(/\\s+/g, ' ').slice(0, 80);
+    const all = q => Array.from(document.querySelectorAll(q)).filter(vis);
     return {
       title: document.title,
-      headings: [...document.querySelectorAll('h1,h2,h3')].filter(vis).map(txt).filter(Boolean).slice(0, 30),
-      buttons: [...document.querySelectorAll('button,[role=button],a.btn,input[type=submit]')].filter(vis).map(e => txt(e) || (e as HTMLInputElement).value).filter(Boolean).slice(0, 60),
-      links: [...document.querySelectorAll('a[href]')].filter(vis).map(e => `${txt(e)} -> ${(e as HTMLAnchorElement).getAttribute('href')}`).slice(0, 80),
-      inputs: [...document.querySelectorAll('input,select')].filter(vis).map(e => `${e.tagName.toLowerCase()} type=${e.getAttribute('type') ?? ''} name=${e.getAttribute('name') ?? ''} id=${e.id} placeholder=${e.getAttribute('placeholder') ?? ''} aria=${e.getAttribute('aria-label') ?? ''}`).slice(0, 40),
-      text: document.body.innerText.replace(/\n{2,}/g, '\n').slice(0, 2500),
+      headings: all('h1,h2,h3').map(txt).filter(Boolean).slice(0, 30),
+      buttons: all('button,[role=button],a.btn,input[type=submit]').map(e => txt(e) || e.value).filter(Boolean).slice(0, 60),
+      links: all('a[href]').map(e => txt(e) + ' -> ' + e.getAttribute('href')).slice(0, 80),
+      inputs: all('input,select').map(e => e.tagName.toLowerCase() + ' type=' + (e.getAttribute('type') || '') + ' name=' + (e.getAttribute('name') || '') + ' id=' + e.id + ' placeholder=' + (e.getAttribute('placeholder') || '') + ' aria=' + (e.getAttribute('aria-label') || '')).slice(0, 40),
+      text: document.body.innerText.replace(/\\n{2,}/g, '\\n').slice(0, 2500),
     };
-  });
+  })()`) as { title: string; headings: string[]; buttons: string[]; links: string[]; inputs: string[]; text: string };
   const shot = (await page.screenshot({ type: 'jpeg', quality: 45, fullPage: false })).toString('base64');
   return { label, url: page.url(), ...info, screenshot_jpeg_base64: shot };
 }
