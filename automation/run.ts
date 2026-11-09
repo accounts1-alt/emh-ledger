@@ -6,7 +6,7 @@
 //   STRIPE_OFFICE_KEY     Stripe Office restricted key
 //   SMTP_USER, SMTP_PASS  the robot mailbox (IONOS) address and password (sends the email); SMTP_HOST to use another provider
 //   REPORT_TO             where the morning report goes (several: separate with commas)
-//   ZEROTIER_NETWORK_ID, ZEROTIER_API_TOKEN   lets the run join the shop's ZeroTier network (used by the workflow)
+//   ZEROTIER_NETWORK_ID, ZEROTIER_IDENTITY    lets the run join the shop's ZeroTier network as the robot's own member (used by the workflow)
 //   SEMTEK_SQL_HOST, SEMTEK_SQL_DB, SEMTEK_SQL_USER, SEMTEK_SQL_PASS   the Semtek SQL Server (read-only login)
 import nodemailer from 'nodemailer';
 import { supabase } from '../src/lib/supabase';

@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      HAS_ZEROTIER: ${{ secrets.ZEROTIER_NETWORK_ID != '' && secrets.ZEROTIER_API_TOKEN != '' }}
+      HAS_ZEROTIER: ${{ secrets.ZEROTIER_NETWORK_ID != '' && secrets.ZEROTIER_IDENTITY != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,16 +30,37 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      # joins the shop's ZeroTier network for this run only (removed again when the run ends)
+      # joins the shop's ZeroTier network for this run only, as the robot's own member (approved once by the network admin)
       - name: Join ZeroTier
+        id: zt
         if: env.HAS_ZEROTIER == 'true'
-        uses: zerotier/github-action@v1
-        with:
-          network_id: ${{ secrets.ZEROTIER_NETWORK_ID }}
-          auth_token: ${{ secrets.ZEROTIER_API_TOKEN }}
+        continue-on-error: true   # Stripe and the email still run if the shop network can't be reached
+        env:
+          ZT_NET: ${{ secrets.ZEROTIER_NETWORK_ID }}
+          ZT_ID: ${{ secrets.ZEROTIER_IDENTITY }}
+        run: |
+          curl -fsSL https://install.zerotier.com | sudo bash >/dev/null
+          sudo systemctl stop zerotier-one
+          echo "$ZT_ID" | tr -d '\r' | sudo tee /var/lib/zerotier-one/identity.secret >/dev/null
+          echo "$ZT_ID" | tr -d '\r' | cut -d: -f1-3 | sudo tee /var/lib/zerotier-one/identity.public >/dev/null
+          sudo chmod 600 /var/lib/zerotier-one/identity.secret
+          sudo systemctl start zerotier-one
+          sleep 3
+          echo "Robot ZeroTier address: $(sudo zerotier-cli info | cut -d' ' -f3)"
+          sudo zerotier-cli join "$ZT_NET"
+          for i in $(seq 1 60); do
+            st=$(sudo zerotier-cli get "$ZT_NET" status 2>/dev/null || true)
+            ip=$(sudo zerotier-cli get "$ZT_NET" ip 2>/dev/null || true)
+            if [ "$st" = "OK" ] && [ -n "$ip" ]; then echo "Joined, address $ip"; exit 0; fi
+            [ "$st" = "ACCESS_DENIED" ] && echo "::warning::ZeroTier: waiting for the network admin to approve this robot"
+            sleep 2
+          done
+          echo "::error::Could not join the ZeroTier network (status: $st). The network admin needs to approve member $(sudo zerotier-cli info | cut -d' ' -f3)."
+          exit 1
       - run: npx tsx automation/run.ts ${{ inputs.what || 'both' }}
         env:
           REPORT_DAY: ${{ inputs.day }}
+          ZEROTIER_OK: ${{ steps.zt.outcome == 'success' }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           STRIPE_SHOP_KEY: ${{ secrets.STRIPE_SHOP_KEY }}
           STRIPE_OFFICE_KEY: ${{ secrets.STRIPE_OFFICE_KEY }}
