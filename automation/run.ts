@@ -13,7 +13,7 @@ import { supabase } from '../src/lib/supabase';
 import { addDays } from '../src/lib/recon';
 import { pullStripe, STRIPE_LABEL, type PullResult } from './stripe';
 import { gatherReport, renderReport } from './report';
-import { discoverSemtek, compareSemtek, semtekConfigured, networkCheck } from './semtek';
+import { discoverSemtek, compareSemtek, semtekConfigured, networkCheck, pullSemtek } from './semtek';
 
 const env = process.env;
 const what = (process.argv[2] || 'both').toLowerCase();
@@ -62,6 +62,16 @@ async function main() {
       catch (e) { res = { source: acct, label: STRIPE_LABEL[acct], ok: false, from, to: yesterday, added: 0, updated: 0, seen: 0, message: (e as Error).message }; }
       pulls.push(res); await log({ step: 'pull', ...res });
     }
+    // Semtek, over the shop's ZeroTier network
+    let sem: PullResult;
+    const semBase = { source: 'semtek', label: 'Semtek', from: yesterday, to: yesterday, added: 0, updated: 0, seen: 0 };
+    if (!semtekConfigured()) sem = { ...semBase, ok: false, message: 'Not set up yet (no Semtek database details).' };
+    else if (env.ZEROTIER_OK !== 'true') sem = { ...semBase, ok: false, message: 'Couldn’t join the shop’s ZeroTier network, so Semtek wasn’t downloaded. Import it by hand or run again.' };
+    else {
+      try { sem = await pullSemtek(yesterday); }
+      catch (e) { sem = { ...semBase, ok: false, message: `Couldn’t read Semtek: ${(e as Error).message}` }; await log({ step: 'semtek-network', network: await networkCheck().catch(x => String(x)) }); }
+    }
+    pulls.push(sem); await log({ step: 'pull', ...sem });
   }
 
   const ok = pulls.every(p => p.ok || p.message.startsWith('Not set up'));

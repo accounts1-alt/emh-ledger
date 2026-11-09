@@ -13,7 +13,7 @@ type Item = {
   periodFrom: string; periodTo: string; periodFromFile: boolean;
 };
 const SOURCES: Source[] = ['semtek', 'paymentsense', 'stripe_shop', 'stripe_office', 'bacs'];
-const CONFLICT: Record<Source, string> = { semtek: 'sale_id', paymentsense: 'merchant,ext_id', stripe_shop: 'merchant,ext_id', stripe_office: 'merchant,ext_id', bacs: 'txn_date,description,amount,occurrence' };
+const CONFLICT: Record<Source, string> = { semtek: 'sale_id,type', paymentsense: 'merchant,ext_id', stripe_shop: 'merchant,ext_id', stripe_office: 'merchant,ext_id', bacs: 'txn_date,description,amount,occurrence' };
 const TABLE: Record<Source, string> = { semtek: 'semtek_lines', paymentsense: 'card_txns', stripe_shop: 'card_txns', stripe_office: 'card_txns', bacs: 'bacs_lines' };
 
 type ImportRow = { id: string; source: string; filename: string; rows_in_file: number; rows_added: number; rows_duplicate: number; date_from: string | null; date_to: string | null; created_at: string };
@@ -63,8 +63,8 @@ export default function ImportPage() {
       let keyOf: (r: Record<string, unknown>) => string;
       let ex: Record<string, unknown>[] = [];
       if (src === 'semtek') {
-        keyOf = r => String(r.sale_id);
-        ex = await all((a, b) => supabase.from('semtek_lines').select('id,voided,sale_id').gte('txn_date', lo!).lte('txn_date', hi!).range(a, b)) as Record<string, unknown>[];
+        keyOf = r => `${r.sale_id}|${r.type}`; // a sale and an account payment can share an ID
+        ex = await all((a, b) => supabase.from('semtek_lines').select('id,voided,sale_id,type').gte('txn_date', lo!).lte('txn_date', hi!).range(a, b)) as Record<string, unknown>[];
         existing = new Set(ex.map(keyOf));
       } else if (src === 'bacs') {
         keyOf = r => `${r.txn_date}|${r.description}|${Number(r.amount).toFixed(2)}|${r.occurrence}`;
