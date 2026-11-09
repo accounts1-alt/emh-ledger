@@ -1,16 +1,19 @@
 // The nightly robot. Run by GitHub Actions (.github/workflows/nightly.yml):
-//   npx tsx automation/run.ts [both|pull|report]
+//   npx tsx automation/run.ts [both|pull|report|semtek-discover]
 // Secrets (GitHub → Settings → Secrets and variables → Actions):
 //   SUPABASE_SECRET_KEY   required – lets the robot write to the app
 //   STRIPE_SHOP_KEY       Stripe Shop restricted key (read: charges, customers, balance)
 //   STRIPE_OFFICE_KEY     Stripe Office restricted key
 //   SMTP_USER, SMTP_PASS  the robot mailbox (IONOS) address and password (sends the email); SMTP_HOST to use another provider
 //   REPORT_TO             where the morning report goes (several: separate with commas)
+//   ZEROTIER_NETWORK_ID, ZEROTIER_API_TOKEN   lets the run join the shop's ZeroTier network (used by the workflow)
+//   SEMTEK_SQL_HOST, SEMTEK_SQL_DB, SEMTEK_SQL_USER, SEMTEK_SQL_PASS   the Semtek SQL Server (read-only login)
 import nodemailer from 'nodemailer';
 import { supabase } from '../src/lib/supabase';
 import { addDays } from '../src/lib/recon';
 import { pullStripe, STRIPE_LABEL, type PullResult } from './stripe';
 import { gatherReport, renderReport } from './report';
+import { discoverSemtek, semtekConfigured } from './semtek';
 
 const env = process.env;
 const what = (process.argv[2] || 'both').toLowerCase();
@@ -25,6 +28,20 @@ async function main() {
   const runId = (run.data as { id: number }).id;
   const steps: Record<string, unknown>[] = [];
   const log = async (s: Record<string, unknown>) => { steps.push(s); console.log(JSON.stringify(s)); await supabase.from('robot_runs').update({ steps }).eq('id', runId); };
+
+  if (what === 'semtek-discover') {
+    if (!semtekConfigured()) throw new Error('The SEMTEK_SQL_HOST / SEMTEK_SQL_USER / SEMTEK_SQL_PASS secrets are missing.');
+    try {
+      const d = await discoverSemtek();
+      await log({ step: 'semtek-discover', ok: true, version: d.version, database: d.database, databases: d.databases, likely: d.likely, views: d.views, tables: d.tables });
+      await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok: true }).eq('id', runId);
+    } catch (e) {
+      await log({ step: 'semtek-discover', ok: false, message: (e as Error).message });
+      await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok: false }).eq('id', runId);
+      process.exitCode = 1;
+    }
+    return;
+  }
 
   const pulls: PullResult[] = [];
   if (what === 'both' || what === 'pull') {

@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       what:
-        description: 'both = download then email, pull = download only, report = email only'
+        description: 'both = download then email, pull = download only, report = email only, semtek-discover = list the Semtek database tables'
         default: both
         type: choice
-        options: [both, pull, report]
+        options: [both, pull, report, semtek-discover]
       day:
         description: 'Report on this day (YYYY-MM-DD). Leave blank for yesterday.'
         required: false
@@ -21,6 +21,8 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      HAS_ZEROTIER: ${{ secrets.ZEROTIER_NETWORK_ID != '' && secrets.ZEROTIER_API_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,6 +30,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
+      # joins the shop's ZeroTier network for this run only (removed again when the run ends)
+      - name: Join ZeroTier
+        if: env.HAS_ZEROTIER == 'true'
+        uses: zerotier/github-action@v1
+        with:
+          network_id: ${{ secrets.ZEROTIER_NETWORK_ID }}
+          auth_token: ${{ secrets.ZEROTIER_API_TOKEN }}
       - run: npx tsx automation/run.ts ${{ inputs.what || 'both' }}
         env:
           REPORT_DAY: ${{ inputs.day }}
@@ -38,3 +47,8 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           REPORT_TO: ${{ secrets.REPORT_TO }}
+          SEMTEK_SQL_HOST: ${{ secrets.SEMTEK_SQL_HOST }}
+          SEMTEK_SQL_PORT: ${{ secrets.SEMTEK_SQL_PORT }}
+          SEMTEK_SQL_DB: ${{ secrets.SEMTEK_SQL_DB }}
+          SEMTEK_SQL_USER: ${{ secrets.SEMTEK_SQL_USER }}
+          SEMTEK_SQL_PASS: ${{ secrets.SEMTEK_SQL_PASS }}
