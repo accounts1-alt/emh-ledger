@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { all, q, supabase } from '../lib/supabase';
-import { parseFile, sniffSource, dateRange, guessPeriod, SOURCE_LABEL, detectStripeAccount, type Source, type ParseResult } from '../lib/parsers';
+import { parseFile, sniffSource, dateRange, guessPeriod, SOURCE_LABEL, detectStripeAccount, newCardRows, type Source, type ParseResult } from '../lib/parsers';
 import { loadSettings } from '../lib/data';
 import { fmtRange, fmtStamp } from '../lib/format';
 import { PageHead, useLoad, useToast, Loading, ErrorBox, Empty } from '../components/ui';
@@ -73,10 +73,13 @@ export default function ImportPage() {
       } else {
         keyOf = r => `${r.merchant}|${r.ext_id}`;
         const merchants = [...new Set(rows.map(r => String(r.merchant)))];
-        ex = await all((a, b) => supabase.from('card_txns').select('id,voided,merchant,ext_id').in('merchant', merchants).gte('txn_date', lo!).lte('txn_date', hi!).range(a, b)) as Record<string, unknown>[];
+        ex = await all((a, b) => supabase.from('card_txns').select('id,voided,merchant,ext_id,txn_at,terminal_id,amount,card_last4').in('merchant', merchants).gte('txn_date', lo!).lte('txn_date', hi!).range(a, b)) as Record<string, unknown>[];
         existing = new Set(ex.map(keyOf));
       }
-      const fresh = rows.filter(r => !existing.has(keyOf(r)));
+      // card lines: also match on time/terminal/amount/card, because Paymentsense adds transaction IDs late
+      const fresh = TABLE[src] === 'card_txns'
+        ? newCardRows(rows as unknown as Parameters<typeof newCardRows>[0], ex as unknown as Parameters<typeof newCardRows>[1]) as unknown as typeof rows
+        : rows.filter(r => !existing.has(keyOf(r)));
       // lines in this file that match lines voided earlier: hidden everywhere, but still block a re-import
       const inFile = new Set(rows.map(keyOf));
       const voidedIds = ex.filter(e => e.voided && inFile.has(keyOf(e))).map(e => String(e.id));

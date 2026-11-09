@@ -4,7 +4,7 @@
 import { chromium, type Page } from 'playwright-core';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { guessPeriod, parseFile, type CardRow } from '../src/lib/parsers';
+import { guessPeriod, newCardRows, parseFile, type CardRow } from '../src/lib/parsers';
 import { all, q, supabase } from '../src/lib/supabase';
 import type { PullResult } from './stripe';
 
@@ -144,9 +144,8 @@ export async function pullPaymentsense(yesterday: string, test = false, log?: Lo
     if (f.period && f.period[0] < from) from = f.period[0];
   }
   for (const r of all_) if (r.txn_date < from) from = r.txn_date;
-  const existing = await all((a, b) => supabase.from('card_txns').select('merchant,ext_id').in('merchant', ['paymentsense', 'amex']).gte('txn_date', from).lte('txn_date', yesterday).range(a, b)) as { merchant: string; ext_id: string }[];
-  const have = new Set(existing.map(e => `${e.merchant}|${e.ext_id}`));
-  const fresh = all_.filter(r => !have.has(`${r.merchant}|${r.ext_id}`));
+  const existing = await all((a, b) => supabase.from('card_txns').select('merchant,ext_id,txn_at,terminal_id,amount,card_last4').in('merchant', ['paymentsense', 'amex']).gte('txn_date', from).lte('txn_date', yesterday).range(a, b)) as Parameters<typeof newCardRows>[1];
+  const fresh = newCardRows(all_, existing); // same ID, or same time/terminal/amount/card (IDs arrive late)
   const byDay: Record<string, { lines: number; total: number; new: number }> = {};
   for (const r of all_) { const d = (byDay[r.txn_date] ??= { lines: 0, total: 0, new: 0 }); d.lines++; d.total = Math.round((d.total + r.amount) * 100) / 100; }
   for (const r of fresh) byDay[r.txn_date].new++;

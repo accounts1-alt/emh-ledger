@@ -144,6 +144,28 @@ export function parsePaymentsense(buf: ArrayBuffer, amexFeePct: number): ParseRe
   return { source: 'paymentsense', rows: out, skipped, warnings };
 }
 
+type CardKeyed = { merchant: string; ext_id: string; txn_at: string; terminal_id?: string | null; amount: number | string; card_last4?: string | null };
+const cardBase = (r: CardKeyed) => `${r.merchant}|${String(r.txn_at).replace('T', ' ').slice(0, 16)}|${r.terminal_id ?? ''}|${Number(r.amount).toFixed(2)}|${r.card_last4 ?? ''}`;
+/**
+ * Card lines from a file that aren't in the app yet. A line is already there if it has the same transaction ID,
+ * or the same minute, terminal, amount and card number (Paymentsense fills transaction IDs in a day or two late,
+ * so the same payment can appear first without an ID and later with one).
+ */
+export function newCardRows<T extends CardKeyed>(incoming: T[], existing: CardKeyed[]): T[] {
+  const ids = new Set(existing.map(e => `${e.merchant}|${e.ext_id}`));
+  const claimed = new Set(incoming.map(r => `${r.merchant}|${r.ext_id}`).filter(k => ids.has(k)));
+  const free = new Map<string, number>(); // existing lines not matched by ID, counted by their details
+  for (const e of existing) if (!claimed.has(`${e.merchant}|${e.ext_id}`)) free.set(cardBase(e), (free.get(cardBase(e)) ?? 0) + 1);
+  const out: T[] = [];
+  for (const r of incoming) {
+    if (ids.has(`${r.merchant}|${r.ext_id}`)) continue;
+    const b = cardBase(r), n = free.get(b) ?? 0;
+    if (n > 0) { free.set(b, n - 1); continue; }
+    out.push(r);
+  }
+  return out;
+}
+
 // ---------- Stripe ----------
 export const STRIPE_FINGERPRINT: Record<'stripe_shop' | 'stripe_office', string> = {
   stripe_shop: 'AVxUpsKI38',
