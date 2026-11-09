@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       what:
-        description: 'both = download then email, pull = download only, report = email only, semtek-discover = list the Semtek database tables'
+        description: 'both = download then email, pull = download only, report = email only, semtek-discover = list the Semtek database tables, semtek-compare = check the database against imported Semtek files'
         default: both
         type: choice
-        options: [both, pull, report, semtek-discover]
+        options: [both, pull, report, semtek-discover, semtek-compare]
       day:
         description: 'Report on this day (YYYY-MM-DD). Leave blank for yesterday.'
         required: false

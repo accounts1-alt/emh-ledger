@@ -1,5 +1,5 @@
 // The nightly robot. Run by GitHub Actions (.github/workflows/nightly.yml):
-//   npx tsx automation/run.ts [both|pull|report|semtek-discover]
+//   npx tsx automation/run.ts [both|pull|report|semtek-discover|semtek-compare]
 // Secrets (GitHub → Settings → Secrets and variables → Actions):
 //   SUPABASE_SECRET_KEY   required – lets the robot write to the app
 //   STRIPE_SHOP_KEY       Stripe Shop restricted key (read: charges, customers, balance)
@@ -13,7 +13,7 @@ import { supabase } from '../src/lib/supabase';
 import { addDays } from '../src/lib/recon';
 import { pullStripe, STRIPE_LABEL, type PullResult } from './stripe';
 import { gatherReport, renderReport } from './report';
-import { discoverSemtek, semtekConfigured } from './semtek';
+import { discoverSemtek, compareSemtek, semtekConfigured } from './semtek';
 
 const env = process.env;
 const what = (process.argv[2] || 'both').toLowerCase();
@@ -29,19 +29,24 @@ async function main() {
   const steps: Record<string, unknown>[] = [];
   const log = async (s: Record<string, unknown>) => { steps.push(s); console.log(JSON.stringify(s)); await supabase.from('robot_runs').update({ steps }).eq('id', runId); };
 
-  if (what === 'semtek-discover') {
+  if (what === 'semtek-discover' || what === 'semtek-compare') {
     if (!semtekConfigured()) throw new Error('The SEMTEK_SQL_HOST / SEMTEK_SQL_USER / SEMTEK_SQL_PASS secrets are missing.');
     if (env.ZEROTIER_OK !== 'true') {
-      await log({ step: 'semtek-discover', ok: false, message: 'Could not join the shop ZeroTier network. The network admin needs to approve the robot member (see the "Join ZeroTier" step in GitHub for its address).' });
+      await log({ step: what, ok: false, message: 'Could not join the shop ZeroTier network. The network admin needs to approve the robot member (see the "Join ZeroTier" step in GitHub for its address).' });
       await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok: false }).eq('id', runId);
       process.exitCode = 1; return;
     }
     try {
-      const d = await discoverSemtek();
-      await log({ step: 'semtek-discover', ok: true, version: d.version, database: d.database, databases: d.databases, likely: d.likely, views: d.views, tables: d.tables });
+      if (what === 'semtek-compare') {
+        const c = await compareSemtek(env.COMPARE_FROM || '2026-10-01', env.REPORT_DAY || yesterday);
+        await log({ step: 'semtek-compare', ok: true, ...c });
+      } else {
+        const d = await discoverSemtek();
+        await log({ step: 'semtek-discover', ok: true, version: d.version, database: d.database, databases: d.databases, likely: d.likely, views: d.views, tables: d.tables });
+      }
       await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok: true }).eq('id', runId);
     } catch (e) {
-      await log({ step: 'semtek-discover', ok: false, message: (e as Error).message });
+      await log({ step: what, ok: false, message: (e as Error).message });
       await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok: false }).eq('id', runId);
       process.exitCode = 1;
     }
