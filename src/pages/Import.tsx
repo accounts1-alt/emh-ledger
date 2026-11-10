@@ -13,7 +13,6 @@ type Item = {
   periodFrom: string; periodTo: string; periodFromFile: boolean;
 };
 const SOURCES: Source[] = ['semtek', 'paymentsense', 'stripe_shop', 'stripe_office', 'bacs'];
-const CONFLICT: Record<Source, string> = { semtek: 'sale_id,type', paymentsense: 'merchant,ext_id', stripe_shop: 'merchant,ext_id', stripe_office: 'merchant,ext_id', bacs: 'txn_date,description,amount,occurrence' };
 const TABLE: Record<Source, string> = { semtek: 'semtek_lines', paymentsense: 'card_txns', stripe_shop: 'card_txns', stripe_office: 'card_txns', bacs: 'bacs_lines' };
 
 type ImportRow = { id: string; source: string; filename: string; rows_in_file: number; rows_added: number; rows_duplicate: number; date_from: string | null; date_to: string | null; created_at: string };
@@ -83,18 +82,22 @@ export default function ImportPage() {
       // lines in this file that match lines voided earlier: hidden everywhere, but still block a re-import
       const inFile = new Set(rows.map(keyOf));
       const voidedIds = ex.filter(e => e.voided && inFile.has(keyOf(e))).map(e => String(e.id));
+      // drop any repeats within this file, then plain-insert: `fresh` already excludes what's in the app,
+      // so we don't depend on a database conflict rule (which can lag behind a schema change).
+      const seenKey = new Set<string>();
+      const toAdd = fresh.filter(r => { const k = keyOf(r); if (seenKey.has(k)) return false; seenKey.add(k); return true; });
       const imp = await q(supabase.from('import_files').insert({
-        source: src, filename: it.file.name, rows_in_file: rows.length, rows_added: fresh.length,
-        rows_duplicate: rows.length - fresh.length,
+        source: src, filename: it.file.name, rows_in_file: rows.length, rows_added: toAdd.length,
+        rows_duplicate: rows.length - toAdd.length,
         // the period the file covers (so days with no sales from a provider still count as loaded)
         date_from: it.periodFrom && it.periodFrom < lo! ? it.periodFrom : lo, date_to: it.periodTo && it.periodTo > hi! ? it.periodTo : hi,
       }).select('id').single()) as { id: string };
-      for (let i = 0; i < fresh.length; i += 500) {
-        const chunk = fresh.slice(i, i + 500).map(r => ({ ...r, import_id: imp.id }));
-        await q(supabase.from(TABLE[src]).upsert(chunk, { onConflict: CONFLICT[src], ignoreDuplicates: true }));
+      for (let i = 0; i < toAdd.length; i += 500) {
+        const chunk = toAdd.slice(i, i + 500).map(r => ({ ...r, import_id: imp.id }));
+        await q(supabase.from(TABLE[src]).insert(chunk));
       }
-      const dup = rows.length - fresh.length;
-      const msg = `${fresh.length} new line${fresh.length === 1 ? '' : 's'} added${dup ? `, ${dup} already in the app` : ''}${voidedIds.length ? ` (${voidedIds.length} of them voided earlier, so hidden)` : ''}.`;
+      const dup = rows.length - toAdd.length;
+      const msg = `${toAdd.length} new line${toAdd.length === 1 ? '' : 's'} added${dup ? `, ${dup} already in the app` : ''}${voidedIds.length ? ` (${voidedIds.length} of them voided earlier, so hidden)` : ''}.`;
       update(it.key, x => ({ ...x, status: 'done', result: msg, voidedIds }));
       toast(`${SOURCE_LABEL[src]}: ${msg}`);
       hist.reload();
