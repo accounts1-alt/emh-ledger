@@ -32,13 +32,34 @@ async function connectOnce(database?: string) {
   const raw = env.SEMTEK_SQL_HOST!.trim();
   const [hostPort, instanceName] = raw.split('\\');
   const [server, portText] = hostPort.split(/[,:]/);
-  const port = Number(env.SEMTEK_SQL_PORT || portText) || undefined;
+  // Resolve the port ourselves and connect straight to it, WITHOUT the instance name:
+  // the driver's own instance lookup uses UDP 1434, which is unreliable and slow over ZeroTier.
+  let port = Number(env.SEMTEK_SQL_PORT || portText) || undefined;
+  if (!port && instanceName) port = await resolveInstancePort(server, instanceName).catch(() => undefined);
   const pool = new sql.ConnectionPool({
-    server, port: instanceName && !port ? undefined : port ?? 1433, database, user: env.SEMTEK_SQL_USER!, password: env.SEMTEK_SQL_PASS!,
-    connectionTimeout: 30000, requestTimeout: 120000,
-    options: { encrypt: false, trustServerCertificate: true, instanceName: instanceName || undefined },
+    server, port: port ?? 1433, database, user: env.SEMTEK_SQL_USER!, password: env.SEMTEK_SQL_PASS!,
+    connectionTimeout: 45000, requestTimeout: 120000,
+    options: { encrypt: false, trustServerCertificate: true },
   });
   return pool.connect();
+}
+
+/** Ask SQL Server Browser (UDP 1434) which TCP port a named instance listens on. */
+function resolveInstancePort(host: string, instance: string): Promise<number | undefined> {
+  return new Promise(resolve => {
+    const sock = dgram.createSocket('udp4');
+    const done = (p?: number) => { try { sock.close(); } catch { /* already closed */ } resolve(p); };
+    const timer = setTimeout(() => done(undefined), 6000);
+    sock.on('message', m => {
+      clearTimeout(timer);
+      const txt = m.subarray(3).toString('ascii');
+      const block = txt.split(';;').find(b => b.toUpperCase().includes(`INSTANCENAME;${instance.toUpperCase()};`)) ?? txt;
+      const match = /tcp;(\d+)/i.exec(block);
+      done(match ? Number(match[1]) : undefined);
+    });
+    sock.on('error', () => { clearTimeout(timer); done(undefined); });
+    sock.send(Buffer.from([0x03]), 1434, host);
+  });
 }
 
 export interface Discovery {
