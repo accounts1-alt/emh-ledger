@@ -2,8 +2,11 @@ name: Nightly pull and morning report
 
 on:
   schedule:
-    # 04:47 UTC every day = 04:47 in winter, 05:47 in summer (UK). GitHub can start it up to ~30 min late.
-    - cron: '47 4 * * *'
+    # GitHub's timer is best-effort (runs can be late or skipped), so there are three chances each morning (UTC).
+    # The first that runs does the work; later ones see the report has gone and stop at once.
+    - cron: '13 4 * * *'
+    - cron: '13 5 * * *'
+    - cron: '13 6 * * *'
   workflow_dispatch:
     inputs:
       what:
