@@ -1,12 +1,14 @@
 name: Deploy the app to Netlify
 
-# Builds the site and publishes it to cash-ledger-emh.netlify.app on every change to main.
-# Needs one secret: NETLIFY_AUTH_TOKEN (a Netlify personal access token).
+# Publishes the current code to cash-ledger-emh.netlify.app.
+# Run from Actions; the one-time proxy path (which authorises the deploy) is passed in when dispatched.
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      proxy_path:
+        description: 'Netlify deploy proxy path'
+        required: true
 
 concurrency: deploy-netlify
 
@@ -21,9 +23,4 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: npm run build
-      - name: Publish to Netlify
-        run: npx --yes netlify-cli@17.38.1 deploy --prod --dir=dist --site="$NETLIFY_SITE_ID" --auth="$NETLIFY_AUTH_TOKEN" --message "GitHub Actions ${GITHUB_SHA}"
-        env:
-          NETLIFY_SITE_ID: e5bebdf3-377d-4089-aa8e-21bb55898931
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      - run: npx -y @netlify/mcp@latest --site-id e5bebdf3-377d-4089-aa8e-21bb55898931 --proxy-path "${{ inputs.proxy_path }}"
