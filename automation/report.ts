@@ -5,7 +5,7 @@ import { addDays, type DayRow, type Figure, type BacsMatch } from '../src/lib/re
 import type { Coverage } from '../src/lib/recon';
 import type { PullResult } from './stripe';
 
-export const APP_URL = 'https://emh-ledger.netlify.app';
+export const APP_URL = 'https://cash-ledger-emh.netlify.app';
 const SOURCE_LABEL: Record<string, string> = { semtek: 'Semtek', paymentsense: 'Paymentsense', stripe_shop: 'Stripe Shop', stripe_office: 'Stripe Office', bacs: 'BACS' };
 const TYPE_LABEL: Record<string, string> = { cash: 'Cash', cheque: 'Cheques', vouchers: 'Vouchers', cards: 'Cards', bacs: 'BACS' };
 
