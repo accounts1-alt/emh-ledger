@@ -41,7 +41,11 @@ async function main() {
     if (!paymentsenseConfigured()) { await log({ step: 'paymentsense-test', ok: false, message: 'PAYMENTSENSE_EMAIL (or the robot mailbox SMTP_USER / SMTP_PASS) secret is missing.' }); ok = false; }
     else {
       try { await log({ step: 'paymentsense-test', ...(await pullPaymentsense(yesterday, true, log)) }); }
-      catch (e) { ok = false; await log({ step: 'paymentsense-test', ok: false, message: (e as Error).message.split('\n').slice(0, 6).join(' | ') }); }
+      catch (e) {
+        ok = false;
+        const err = e as { message?: string; stack?: string; cause?: unknown; name?: string };
+        await log({ step: 'paymentsense-test', ok: false, message: err.message || String(e), name: err.name, stack: String(err.stack || '').slice(0, 2500), cause: err.cause ? String(err.cause).slice(0, 800) : undefined });
+      }
     }
     await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
     if (!ok) process.exitCode = 1;

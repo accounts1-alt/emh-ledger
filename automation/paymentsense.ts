@@ -110,7 +110,7 @@ export interface PsFile { choice: string; filename: string; lines: number; perio
 
 /** Download "Last week" and "This week" as CSV. */
 export async function downloadPaymentsense(log?: Log): Promise<{ files: (PsFile & { buf: ArrayBuffer })[] }> {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   try {
     const ctx = await browser.newContext({ viewport: { width: 1366, height: 900 }, locale: 'en-GB', timezoneId: 'Europe/London', acceptDownloads: true });
     const page = await ctx.newPage();
