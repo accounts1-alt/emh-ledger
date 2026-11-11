@@ -14,8 +14,18 @@ export function paymentsenseConfigured() { return !!(env.PAYMENTSENSE_EMAIL && e
 
 /** Wait for a Paymentsense login email that arrived after `since` and return the "Log in now" link. */
 export async function waitForLoginLink(since: Date, timeoutMs = 240000): Promise<{ link: string; subject: string; from: string }> {
-  const client = new ImapFlow({ host: env.IMAP_HOST || 'imap.ionos.co.uk', port: 993, secure: true, auth: { user: env.SMTP_USER!, pass: env.SMTP_PASS! }, logger: false });
-  await client.connect();
+  const host = env.IMAP_HOST || 'imap.ionos.co.uk';
+  // capture what the mail server actually says, so a refusal gives a clear reason rather than "Command failed"
+  const seen: string[] = [];
+  const log = (o: Record<string, unknown>) => { const m = [o.msg, o.err, o.response].filter(Boolean).join(' '); if (m) seen.push(String(m).slice(0, 200)); };
+  const client = new ImapFlow({ host, port: 993, secure: true, auth: { user: env.SMTP_USER!, pass: env.SMTP_PASS! }, logger: { debug: log, info: log, warn: log, error: log } as never });
+  try {
+    await client.connect();
+  } catch (e) {
+    const x = e as { message?: string; responseText?: string; response?: string; authenticationFailed?: boolean; serverResponseCode?: string; code?: string };
+    const detail = [x.responseText, x.response, x.serverResponseCode, x.authenticationFailed ? 'authentication rejected' : '', x.code].filter(Boolean).join(' | ');
+    throw new Error(`Mailbox (${host}) refused the robot: ${detail || x.message || 'no detail'}. Server said: ${seen.slice(-6).join(' // ') || '(nothing)'}`);
+  }
   try {
     const end = Date.now() + timeoutMs;
     while (Date.now() < end) {
