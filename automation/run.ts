@@ -86,7 +86,10 @@ async function main() {
     if (!paymentsenseConfigured()) ps = { source: 'paymentsense', label: 'Paymentsense', ok: false, from: yesterday, to: yesterday, added: 0, updated: 0, seen: 0, message: 'Not set up yet (no PAYMENTSENSE_EMAIL).' };
     else {
       try { ps = await pullPaymentsense(yesterday); }
-      catch (e) { ps = { source: 'paymentsense', label: 'Paymentsense', ok: false, from: yesterday, to: yesterday, added: 0, updated: 0, seen: 0, message: `Couldn’t download from Paymentsense: ${(e as Error).message.split('\n')[0]}` }; }
+      catch (e) {
+        ps = { source: 'paymentsense', label: 'Paymentsense', ok: false, from: yesterday, to: yesterday, added: 0, updated: 0, seen: 0, message: `Couldn’t download from Paymentsense: ${(e as Error).message.split('\n')[0]}` };
+        await log({ step: 'ps-error', ok: false, message: String((e as Error).stack || (e as Error).message).slice(0, 2000) });
+      }
     }
     pulls.push(ps); await log({ step: 'pull', ...ps });
 
@@ -103,21 +106,33 @@ async function main() {
   }
 
   const ok = pulls.every(p => p.ok || p.message.startsWith('Not set up'));
+  // The report and email must never abort the run: the data is already saved by this point.
   if (what === 'both' || what === 'report') {
-    const rep = renderReport(await gatherReport(yesterday, pulls));
-    let emailed: string | null = null;
-    if (env.SMTP_USER && env.SMTP_PASS && env.REPORT_TO) {
-      const mail = nodemailer.createTransport({ host: env.SMTP_HOST || 'smtp.ionos.co.uk', port: 465, secure: true, auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } });
-      await mail.sendMail({ from: `Em H ledger <${env.SMTP_USER}>`, to: env.REPORT_TO, subject: rep.subject, html: rep.html });
-      emailed = env.REPORT_TO;
-      await log({ step: 'email', ok: true, to: emailed, subject: rep.subject });
-    } else {
-      await log({ step: 'email', ok: false, message: 'Email not set up yet (SMTP_USER / SMTP_PASS / REPORT_TO). Report saved in the app only.', subject: rep.subject });
-    }
-    await supabase.from('robot_runs').update({ report_html: rep.html, emailed_to: emailed }).eq('id', runId);
+    try {
+      const rep = renderReport(await gatherReport(yesterday, pulls));
+      let emailed: string | null = null;
+      if (env.SMTP_USER && env.SMTP_PASS && env.REPORT_TO) {
+        try { await sendReport(rep.subject, rep.html); emailed = env.REPORT_TO; await log({ step: 'email', ok: true, to: emailed, subject: rep.subject }); }
+        catch (e) { await log({ step: 'email', ok: false, message: `Couldn’t send the email (${(e as Error).message}); the report is saved in the app.`, subject: rep.subject }); }
+      } else {
+        await log({ step: 'email', ok: false, message: 'Email not set up yet (SMTP_USER / SMTP_PASS / REPORT_TO). Report saved in the app only.', subject: rep.subject });
+      }
+      await supabase.from('robot_runs').update({ report_html: rep.html, emailed_to: emailed }).eq('id', runId);
+    } catch (e) { await log({ step: 'report', ok: false, message: (e as Error).message }); }
   }
   await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
   if (!ok) process.exitCode = 1;
+}
+
+/** Send the morning email, retrying a few times on a temporary (4xx) SMTP failure such as IONOS's "454". */
+async function sendReport(subject: string, html: string) {
+  const mail = nodemailer.createTransport({ host: env.SMTP_HOST || 'smtp.ionos.co.uk', port: Number(env.SMTP_PORT) || 465, secure: true, auth: { user: env.SMTP_USER!, pass: env.SMTP_PASS! } });
+  let last: unknown;
+  for (let i = 1; i <= 4; i++) {
+    try { await mail.sendMail({ from: `Em H ledger <${env.SMTP_USER}>`, to: env.REPORT_TO!, subject, html }); return; }
+    catch (e) { last = e; if (((e as { responseCode?: number }).responseCode ?? 0) >= 500) throw e; await new Promise(r => setTimeout(r, 15000 * i)); }
+  }
+  throw last;
 }
 
 main().catch(async e => {
