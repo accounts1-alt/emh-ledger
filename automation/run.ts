@@ -26,7 +26,9 @@ const PULL_DAYS = 7; // re-read a week each night: catches a missed night and la
 async function main() {
   if (!env.SUPABASE_SECRET_KEY) throw new Error('The SUPABASE_SECRET_KEY secret is missing, so the robot can’t reach the app.');
   // a scheduled start when this morning's report has already gone out: nothing to do
-  if (env.GITHUB_EVENT_NAME === 'schedule') {
+  // An automatic start (GitHub's own timer, or the database timer poking us with auto=1) does nothing
+  // if this morning's report has already gone out — so a backup poke can't send a second email.
+  if (env.GITHUB_EVENT_NAME === 'schedule' || env.AUTO === '1') {
     const done = await supabase.from('robot_runs').select('id').eq('what', 'both').eq('report_for', yesterday).not('emailed_to', 'is', null).limit(1);
     if (done.data?.length) { console.log(`Report for ${yesterday} already sent (run ${(done.data[0] as { id: number }).id}); nothing to do.`); return; }
   }

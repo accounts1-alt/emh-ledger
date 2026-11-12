@@ -17,6 +17,9 @@ on:
       day:
         description: 'Report on this day (YYYY-MM-DD). Leave blank for yesterday.'
         required: false
+      auto:
+        description: 'Set by the database timer; blank for manual runs.'
+        required: false
 
 concurrency: nightly
 
@@ -66,6 +69,7 @@ jobs:
       - run: npx tsx automation/run.ts ${{ inputs.what || 'both' }}
         env:
           REPORT_DAY: ${{ inputs.day }}
+          AUTO: ${{ inputs.auto }}
           ZEROTIER_OK: ${{ steps.zt.outcome == 'success' }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           STRIPE_SHOP_KEY: ${{ secrets.STRIPE_SHOP_KEY }}
