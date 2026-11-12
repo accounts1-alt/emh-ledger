@@ -7,7 +7,7 @@ on:
         description: 'both = download then email, pull = download only, report = email only, semtek-discover = list the Semtek database tables, semtek-compare = check the database against imported Semtek files, paymentsense-test = download from Paymentsense without saving'
         default: both
         type: choice
-        options: [both, pull, report, semtek-discover, semtek-compare, paymentsense-test]
+        options: [both, pull, report, semtek-discover, semtek-compare, paymentsense-test, semtek-perms]
       day:
         description: 'Report on this day (YYYY-MM-DD). Leave blank for yesterday.'
         required: false
@@ -31,7 +31,7 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - name: Install browser (for Paymentsense)
-        if: inputs.what != 'report' && inputs.what != 'semtek-discover' && inputs.what != 'semtek-compare'
+        if: inputs.what != 'report' && inputs.what != 'semtek-discover' && inputs.what != 'semtek-compare' && inputs.what != 'semtek-perms'
         run: npx playwright-core install --with-deps chromium
       # joins the shop's ZeroTier network for this run only, as the robot's own member (approved once by the network admin)
       - name: Join ZeroTier

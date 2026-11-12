@@ -324,3 +324,30 @@ const same = (f: string, a: unknown, b: unknown) => (MONEY.has(f) ? Math.abs(n(a
 const show = (f: string, v: unknown) => (MONEY.has(f) ? `£${n(v).toFixed(2)}` : s(v) || '(blank)');
 const pick = (r: SemtekRow, fields: readonly string[]) => Object.fromEntries(fields.map(f => [f, (r as unknown as Record<string, unknown>)[f]]));
 const who = (r: SemtekRow) => [r.last_name, r.account_no].filter(x => x && x !== '0').join(', ');
+
+/** Report exactly what the Semtek login is allowed to do (read-only probe; writes nothing). */
+export async function checkSemtekPerms() {
+  const pool = await semtekConnect();
+  try {
+    const q = async (sql: string) => (await pool.request().query(sql)).recordset as Record<string, unknown>[];
+    const who = (await q(`select SUSER_SNAME() as login, USER_NAME() as db_user, DB_NAME() as db`))[0];
+    const flags = (await q(`select
+      IS_SRVROLEMEMBER('sysadmin') as sysadmin,
+      IS_MEMBER('db_owner') as db_owner,
+      IS_MEMBER('db_datawriter') as db_datawriter,
+      IS_MEMBER('db_datareader') as db_datareader,
+      HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','INSERT') as insert_db,
+      HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','UPDATE') as update_db,
+      HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','DELETE') as delete_db,
+      HAS_PERMS_BY_NAME('dbo.Sales','OBJECT','INSERT') as insert_sales,
+      HAS_PERMS_BY_NAME('dbo.Sales','OBJECT','UPDATE') as update_sales,
+      HAS_PERMS_BY_NAME('dbo.Sales','OBJECT','DELETE') as delete_sales,
+      HAS_PERMS_BY_NAME('dbo.Payments','OBJECT','INSERT') as insert_payments`))[0];
+    const roles = (await q(`select r.name from sys.database_role_members m
+      join sys.database_principals r on r.principal_id = m.role_principal_id
+      join sys.database_principals u on u.principal_id = m.member_principal_id
+      where u.name = USER_NAME()`)).map(x => x.name as string);
+    const canWrite = !!(flags.sysadmin || flags.db_owner || flags.db_datawriter || flags.insert_db || flags.update_db || flags.delete_db || flags.insert_sales || flags.update_sales || flags.delete_sales || flags.insert_payments);
+    return { who, roles, flags, can_write_anywhere: canWrite };
+  } finally { await pool.close(); }
+}

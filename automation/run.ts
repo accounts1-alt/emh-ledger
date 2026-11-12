@@ -15,7 +15,7 @@ import { addDays } from '../src/lib/recon';
 import { pullStripe, STRIPE_LABEL, type PullResult } from './stripe';
 import { gatherReport, renderReport } from './report';
 import { pullPaymentsense, paymentsenseConfigured } from './paymentsense';
-import { discoverSemtek, compareSemtek, semtekConfigured, networkCheck, pullSemtek } from './semtek';
+import { discoverSemtek, compareSemtek, semtekConfigured, networkCheck, pullSemtek, checkSemtekPerms } from './semtek';
 
 const env = process.env;
 const what = (process.argv[2] || 'both').toLowerCase();
@@ -48,6 +48,19 @@ async function main() {
         const err = e as { message?: string; stack?: string; cause?: unknown; name?: string };
         await log({ step: 'paymentsense-test', ok: false, message: err.message || String(e), name: err.name, stack: String(err.stack || '').slice(0, 2500), cause: err.cause ? String(err.cause).slice(0, 800) : undefined });
       }
+    }
+    await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
+    if (!ok) process.exitCode = 1;
+    return;
+  }
+
+  if (what === 'semtek-perms') {
+    let ok = true;
+    if (!semtekConfigured()) { await log({ step: 'semtek-perms', ok: false, message: 'No Semtek database details set.' }); ok = false; }
+    else if (env.ZEROTIER_OK !== 'true') { await log({ step: 'semtek-perms', ok: false, message: 'Couldn’t join the shop ZeroTier network (is your PC disconnected from Shop?).' }); ok = false; }
+    else {
+      try { await log({ step: 'semtek-perms', ok: true, ...(await checkSemtekPerms()) }); }
+      catch (e) { ok = false; await log({ step: 'semtek-perms', ok: false, message: (e as Error).message, network: await networkCheck().catch(x => String(x)) }); }
     }
     await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
     if (!ok) process.exitCode = 1;
