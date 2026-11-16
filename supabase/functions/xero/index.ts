@@ -95,13 +95,17 @@ async function send(orderId: number, who: string) {
   const { data: items } = await db.from('ord_items').select('id, name, xero_code').in('id', lines.map(l => l.item_id));
   const item = new Map((items ?? []).map(i => [i.id, i]));
   const { data: cust } = await db.from('ord_customers').select('id, name, xero_contact_id').eq('id', o.customer_id).single();
+  const { data: tx } = await db.from('ord_settings').select('value').eq('key', 'xero_tax_type').maybeSingle();
+  const taxType = tx?.value || 'ZERORATEDOUTPUT';
 
   const LineItems = lines.map(l => {
     const p = price.get(l.id), it = item.get(l.item_id)!;
     if (p == null) throw new Fail(`No price for ${it.name}`);
-    const li: Record<string, unknown> = { Description: it.name, Quantity: Number(l.qty_net), UnitAmount: p, AccountCode: SALES_ACCOUNT };
-    if (it.xero_code) li.ItemCode = it.xero_code;
-    return li;
+    // Items with a Xero code: Xero fills the sales account and VAT from the item's own defaults.
+    // Items without one (added in the app only): account 224 + zero-rated.
+    return it.xero_code
+      ? { ItemCode: it.xero_code, Description: it.name, Quantity: Number(l.qty_net), UnitAmount: p }
+      : { Description: it.name, Quantity: Number(l.qty_net), UnitAmount: p, AccountCode: SALES_ACCOUNT, TaxType: taxType };
   });
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
   const inv = {
