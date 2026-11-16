@@ -1,5 +1,5 @@
 // The nightly robot. Run by GitHub Actions (.github/workflows/nightly.yml):
-//   npx tsx automation/run.ts [both|pull|report|semtek-discover|semtek-compare|paymentsense-test]
+//   npx tsx automation/run.ts [both|pull|report|backup|semtek-discover|semtek-compare|paymentsense-test]
 // Secrets (GitHub → Settings → Secrets and variables → Actions):
 //   SUPABASE_SECRET_KEY   required – lets the robot write to the app
 //   STRIPE_SHOP_KEY       Stripe Shop restricted key (read: charges, customers, balance)
@@ -10,6 +10,7 @@
 //   PAYMENTSENSE_EMAIL    the email you log in to myaccount.paymentsense.com with (its login emails are forwarded to SMTP_USER)
 //   SEMTEK_SQL_HOST, SEMTEK_SQL_DB, SEMTEK_SQL_USER, SEMTEK_SQL_PASS   the Semtek SQL Server (read-only login)
 import nodemailer from 'nodemailer';
+import { gzipSync } from 'node:zlib';
 import { supabase } from '../src/lib/supabase';
 import { addDays } from '../src/lib/recon';
 import { pullStripe, STRIPE_LABEL, type PullResult } from './stripe';
@@ -139,8 +140,35 @@ async function main() {
       await supabase.from('robot_runs').update({ report_html: rep.html, emailed_to: emailed }).eq('id', runId);
     } catch (e) { await log({ step: 'report', ok: false, message: (e as Error).message }); }
   }
+  // Nightly backup of every table, emailed as a zipped attachment (never aborts the run).
+  if (what === 'both' || what === 'backup') {
+    try { await log({ step: 'backup', ok: true, ...(await emailBackup()) }); }
+    catch (e) { await log({ step: 'backup', ok: false, message: (e as Error).message }); }
+  }
   await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
   if (!ok) process.exitCode = 1;
+}
+
+/** Take a full copy of the database (ButcherPay + orders) and email it, zipped, to REPORT_TO. */
+async function emailBackup() {
+  if (!(env.SMTP_USER && env.SMTP_PASS && env.REPORT_TO)) throw new Error('Email not set up (SMTP_USER / SMTP_PASS / REPORT_TO).');
+  const { data, error } = await supabase.rpc('backup_dump');
+  if (error) throw new Error(`Couldn’t read the database: ${error.message}`);
+  const json = JSON.stringify(data);
+  const gz = gzipSync(Buffer.from(json));
+  const tables = Object.entries((data as { tables: Record<string, unknown[]> }).tables).map(([k, v]) => `${k}: ${v.length}`);
+  const day = londonToday();
+  const mail = nodemailer.createTransport({ host: env.SMTP_HOST || 'smtp.ionos.co.uk', port: Number(env.SMTP_PORT) || 465, secure: true, auth: { user: env.SMTP_USER!, pass: env.SMTP_PASS! } });
+  let last: unknown;
+  for (let i = 1; i <= 4; i++) {
+    try {
+      await mail.sendMail({ from: `Em H backup <${env.SMTP_USER}>`, to: env.REPORT_TO!, subject: `Em H database backup – ${day}`,
+        html: `<p>Nightly backup of the ButcherPay and Orders database, attached (<b>emh-backup-${day}.json.gz</b>, ${Math.round(gz.length / 1024)} KB).</p><p>Keep these emails – if anything is ever lost, send the latest one to Claude to restore it.</p><p style="color:#777;font-size:12px">${tables.join(' · ')}</p>`,
+        attachments: [{ filename: `emh-backup-${day}.json.gz`, content: gz, contentType: 'application/gzip' }] });
+      return { to: env.REPORT_TO, kb: Math.round(gz.length / 1024), tables: tables.length };
+    } catch (e) { last = e; if (((e as { responseCode?: number }).responseCode ?? 0) >= 500) throw e; await new Promise(r => setTimeout(r, 15000 * i)); }
+  }
+  throw last;
 }
 
 /** Send the morning email, retrying a few times on a temporary (4xx) SMTP failure such as IONOS's "454". */
