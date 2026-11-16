@@ -141,7 +141,8 @@ async function main() {
     } catch (e) { await log({ step: 'report', ok: false, message: (e as Error).message }); }
   }
   // Nightly backup of every table, emailed as a zipped attachment (never aborts the run).
-  if (what === 'both' || what === 'backup') {
+  // Emailed backup switched OFF (16 Nov 2026, owner's request: no business data by email). Kept only for an explicit manual run.
+  if (what === 'backup' && env.ALLOW_EMAIL_BACKUP === '1') {
     try { await log({ step: 'backup', ok: true, ...(await emailBackup()) }); }
     catch (e) { await log({ step: 'backup', ok: false, message: (e as Error).message }); }
   }
