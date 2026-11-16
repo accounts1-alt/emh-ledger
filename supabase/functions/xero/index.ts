@@ -13,7 +13,7 @@ const SB_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const REDIRECT = `${SB_URL}/functions/v1/xero/callback`;
 const APP = 'https://accounts1-alt.github.io/emh-ledger/orders/#setup';
-const SCOPES = 'openid profile email offline_access accounting.invoices accounting.contacts';
+const SCOPES = 'openid profile email offline_access accounting.invoices accounting.contacts accounting.settings.read';
 const SALES_ACCOUNT = '224';
 
 const db = createClient(SB_URL, SERVICE, { auth: { persistSession: false } });
@@ -134,7 +134,7 @@ async function sync(who: string) {
     contacts.push(...c);
     if (c.length < 500) break;
   }
-  const xc = contacts.filter(c => c.ContactStatus === 'ACTIVE' && (c.IsCustomer || !c.IsSupplier));
+  const xc = contacts.filter(c => c.ContactStatus === 'ACTIVE' && c.IsCustomer === true);   // only contacts Xero marks as customers (have sales invoices)
   const { data: appC } = await db.from('ord_customers').select('*');
   const cById = new Map((appC ?? []).filter(c => c.xero_contact_id).map(c => [c.xero_contact_id, c]));
   const cUnlinked = new Map((appC ?? []).filter(c => !c.xero_contact_id).map(c => [norm(c.name), c]));
@@ -153,15 +153,21 @@ async function sync(who: string) {
     } else newC.push({ name: x.Name, xero_contact_id: x.ContactID, created_by: 'xero sync' });
   }
   if (newC.length) { const { error } = await db.from('ord_customers').insert(newC); if (error) throw new Fail(`Saving customers: ${error.message}`); res.customers_added = newC.length; }
-  for (const c of appC ?? []) {
-    if (!c.xero_contact_id || seenC.has(c.xero_contact_id)) continue;           // app-only new customers are kept until their first invoice
-    const { count } = await db.from('ord_orders').select('id', { count: 'exact', head: true }).eq('customer_id', c.id);
-    if (count) { if (!c.orphaned) { await db.from('ord_customers').update({ active: false, orphaned: true }).eq('id', c.id); res.customers_archived++; } }
-    else { await db.from('ord_customers').delete().eq('id', c.id); res.customers_deleted++; }
-  }
+  // gone from Xero: archive if used on an order, otherwise remove (app-only new customers are kept until their first invoice)
+  const goneC = (appC ?? []).filter(c => c.xero_contact_id && !seenC.has(c.xero_contact_id));
+  const usedC = new Set<number>();
+  if (goneC.length) ((await db.rpc('ord_used_customers', { ids: goneC.map(c => c.id) })).data ?? []).forEach((id: number) => usedC.add(Number(id)));
+  const archC = goneC.filter(c => usedC.has(c.id) && !c.orphaned).map(c => c.id);
+  const delC = goneC.filter(c => !usedC.has(c.id)).map(c => c.id);
+  for (let k = 0; k < archC.length; k += 200) await db.from('ord_customers').update({ active: false, orphaned: true }).in('id', archC.slice(k, k + 200));
+  for (let k = 0; k < delC.length; k += 200) await db.from('ord_customers').delete().in('id', delC.slice(k, k + 200));
+  res.customers_archived = archC.length; res.customers_deleted = delC.length;
 
   // ---- items ----
-  const xi = ((await xero('Items')).Items ?? []).filter((i: { IsSold?: boolean }) => i.IsSold !== false) as { ItemID: string; Code: string; Name?: string }[];
+  let itemsResp;
+  try { itemsResp = await xero('Items'); }
+  catch (e) { await saveStamp(who, res, 'Items: ' + (e as Error).message); throw new Fail('Customers synced, but Xero would not give the item list – click Reconnect in Settings (Xero needs to approve reading items), then Sync again.'); }
+  const xi = (itemsResp.Items ?? []).filter((i: { IsSold?: boolean }) => i.IsSold !== false) as { ItemID: string; Code: string; Name?: string }[];
   const { data: appI } = await db.from('ord_items').select('*');
   const iById = new Map((appI ?? []).filter(i => i.xero_item_id).map(i => [i.xero_item_id, i]));
   const iByCode = new Map((appI ?? []).filter(i => !i.xero_item_id && i.xero_code).map(i => [i.xero_code, i]));
@@ -180,16 +186,19 @@ async function sync(who: string) {
     } else newI.push({ name, xero_code: x.Code, xero_item_id: x.ItemID, created_by: 'xero sync' });
   }
   if (newI.length) { const { error } = await db.from('ord_items').insert(newI); if (error) throw new Fail(`Saving items: ${error.message}`); res.items_added = newI.length; }
-  for (const i of appI ?? []) {
-    if (seenI.has(i.id) || (!i.xero_code && !i.xero_item_id)) continue;           // app-only items are kept
-    const { count: a } = await db.from('ord_lines').select('id', { count: 'exact', head: true }).eq('item_id', i.id);
-    const { count: b } = await db.from('ord_lines').select('id', { count: 'exact', head: true }).eq('orig_item_id', i.id);
-    if ((a ?? 0) + (b ?? 0)) { if (!i.orphaned) { await db.from('ord_items').update({ active: false, orphaned: true }).eq('id', i.id); res.items_archived++; } }
-    else { await db.from('ord_items').delete().eq('id', i.id); res.items_deleted++; }
-  }
-  const stamp = JSON.stringify({ at: new Date().toISOString(), by: who, ...res });
-  await db.from('ord_settings').upsert({ key: 'last_xero_sync', value: stamp });
+  const goneI = (appI ?? []).filter(i => !seenI.has(i.id) && (i.xero_code || i.xero_item_id));   // app-only items are kept
+  const usedI = new Set<number>();
+  if (goneI.length) ((await db.rpc('ord_used_items', { ids: goneI.map(i => i.id) })).data ?? []).forEach((id: number) => usedI.add(Number(id)));
+  const archI = goneI.filter(i => usedI.has(i.id) && !i.orphaned).map(i => i.id);
+  const delI = goneI.filter(i => !usedI.has(i.id)).map(i => i.id);
+  for (let k = 0; k < archI.length; k += 200) await db.from('ord_items').update({ active: false, orphaned: true }).in('id', archI.slice(k, k + 200));
+  for (let k = 0; k < delI.length; k += 200) await db.from('ord_items').delete().in('id', delI.slice(k, k + 200));
+  res.items_archived = archI.length; res.items_deleted = delI.length;
+  await saveStamp(who, res);
   return res;
+}
+async function saveStamp(who: string, res: Record<string, number>, error?: string) {
+  await db.from('ord_settings').upsert({ key: 'last_xero_sync', value: JSON.stringify({ at: new Date().toISOString(), by: who, ...res, error }) });
 }
 
 Deno.serve(async req => {
