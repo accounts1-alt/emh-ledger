@@ -12,7 +12,7 @@ const SB_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const REDIRECT = `${SB_URL}/functions/v1/xero/callback`;
 const APP = 'https://accounts1-alt.github.io/emh-ledger/orders/#setup';
-const SCOPES = 'openid profile email offline_access accounting.invoices accounting.contacts accounting.settings.read';
+const SCOPES = 'openid profile email offline_access accounting.invoices accounting.contacts';
 const SALES_ACCOUNT = '224';
 
 const db = createClient(SB_URL, SERVICE, { auth: { persistSession: false } });
