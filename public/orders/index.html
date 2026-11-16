@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Em H Orders</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; font-size: 17px; color: #1b1b1b; background: #f4f4f1; }
+  header { background: #7a1f1f; color: #fff; padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 20px; margin: 0 12px 0 0; }
+  header .who { margin-left: auto; font-size: 14px; opacity: .9; }
+  header .who a { color: #fff; margin-left: 10px; }
+  nav button { background: transparent; color: #fff; border: 2px solid rgba(255,255,255,.5); border-radius: 8px; padding: 8px 14px; font-size: 16px; cursor: pointer; }
+  nav button.on { background: #fff; color: #7a1f1f; border-color: #fff; font-weight: 600; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  h2 { margin: 0 0 12px; font-size: 22px; }
+  label { display: block; font-weight: 600; margin: 10px 0 4px; }
+  input, select, textarea { font: inherit; padding: 9px 10px; border: 1px solid #bbb; border-radius: 8px; background: #fff; width: 100%; }
+  textarea { min-height: 60px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 220px; }
+  button.big, button.btn { font: inherit; border: 0; border-radius: 8px; padding: 11px 18px; cursor: pointer; font-weight: 600; }
+  button.big { background: #1f7a3a; color: #fff; font-size: 18px; padding: 13px 26px; }
+  button.btn { background: #e7e7e2; color: #222; }
+  button.blue { background: #1f4f7a; color: #fff; }
+  button.red { background: #b3261e; color: #fff; }
+  button.link { background: none; border: 0; color: #1f4f7a; text-decoration: underline; cursor: pointer; font: inherit; padding: 4px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid #e5e5e0; vertical-align: middle; }
+  th { font-size: 14px; color: #555; background: #fafaf7; }
+  td.num, th.num { text-align: right; }
+  tr.click { cursor: pointer; } tr.click:hover { background: #f6f3e8; }
+  tr.removed td { text-decoration: line-through; color: #999; }
+  tr.removed td.keep { text-decoration: none; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 14px; font-weight: 600; }
+  .s-new { background: #fde9b8; color: #6b4b00; }
+  .s-fulfilled { background: #cfe8d6; color: #14532d; }
+  .s-invoiced { background: #d6e2f0; color: #1f3d66; }
+  .tag { font-size: 12px; background: #fde9b8; border-radius: 4px; padding: 1px 6px; margin-left: 6px; text-decoration: none; display: inline-block; }
+  .last { display: inline-block; margin-top: 4px; font-size: 13px; background: #eef4ec; border: 1px solid #b9d4b4; border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+  .muted { color: #777; font-size: 14px; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .filters button { border: 1px solid #bbb; background: #fff; border-radius: 99px; padding: 7px 14px; font: inherit; cursor: pointer; }
+  .filters button.on { background: #222; color: #fff; border-color: #222; }
+  .filters input { width: auto; }
+  .filters button.link { border: 0; background: none; padding: 4px 6px; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; align-items: center; }
+  .msg { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #222; color: #fff; padding: 12px 20px; border-radius: 10px; z-index: 9; max-width: 90%; }
+  .msg.err { background: #b3261e; }
+  .total { font-size: 20px; font-weight: 700; text-align: right; margin-top: 10px; }
+  .unit { color: #555; font-size: 14px; white-space: nowrap; }
+  td input, td select { padding: 7px 8px; }
+  td input.n { width: 100px; text-align: right; }
+  #login { max-width: 380px; margin: 60px auto; }
+  .hide { display: none !important; }
+  @media (max-width: 700px) {
+    .lines thead { display: none; }
+    .lines tr { display: block; border-bottom: 2px solid #ddd; padding: 6px 0; }
+    .lines td { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 0; padding: 5px 4px; }
+    .lines td::before { content: attr(data-l); font-weight: 600; font-size: 14px; color: #555; }
+    .lines td.num { text-align: left; }
+  }
+</style>
+</head>
+<body>
+<header class="hide" id="top">
+  <h1>Em H Orders</h1>
+  <nav>
+    <button data-tab="new">+ New order</button>
+    <button data-tab="list">Orders</button>
+    <button data-tab="setup">Customers &amp; items</button>
+    <button data-tab="staff">Staff</button>
+  </nav>
+  <div class="who"><span id="me"></span><a href="#" id="signout">Sign out</a></div>
+</header>
+
+<main>
+  <div id="login" class="card hide">
+    <h2>Sign in</h2>
+    <label>Email</label><input id="li-email" type="email" autocomplete="username">
+    <label>Password</label><input id="li-pass" type="password" autocomplete="current-password">
+    <div class="actions"><button class="big" id="li-go">Sign in</button></div>
+    <p class="muted">No login yet? Ask the office to add you under Staff.</p>
+  </div>
+  <div id="view"></div>
+</main>
+
+<script>
+const sb = supabase.createClient('https://bcdibbhmiwccvvmryqze.supabase.co', 'sb_publishable_YAtej3hTvSDPHPLQVYk-Ig_K4rxgiYr',
+  { auth: { storageKey: 'emh-orders-auth', persistSession: true, autoRefreshToken: true } });
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const money = n => n == null || isNaN(n) ? '—' : '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const qtyFmt = n => n == null || n === '' ? '' : String(Number(n));
+const UNITS = { each: 'each', kg: 'kg', box: 'box' };
+const ukDate = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
+const isoDay = (offset = 0) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.toLocaleDateString('en-CA'); };
+
+let customers = [], items = [], me = '';
+const S = { tab: 'list', filter: 'open', date: '' };
+
+function toast(text, err) {
+  document.querySelectorAll('.msg').forEach(m => m.remove());
+  const el = document.createElement('div'); el.className = 'msg' + (err ? ' err' : ''); el.textContent = text;
+  document.body.appendChild(el); setTimeout(() => el.remove(), err ? 6000 : 2500);
+}
+async function q(p) {
+  const { data, error } = await p;
+  if (error) { let m = error.message || String(error); if (/row-level security/i.test(m)) m = 'Your login is not set up for orders. Ask the office to add you.'; throw new Error(m); }
+  return data;
+}
+async function safe(fn) { try { await fn(); } catch (e) { toast(e.message, true); } }
+
+async function loadLists() {
+  [customers, items] = await Promise.all([
+    q(sb.from('ord_customers').select('*').order('name')),
+    q(sb.from('ord_items').select('*').order('name')),
+  ]);
+}
+const cust = id => customers.find(c => c.id == id);
+const item = id => items.find(i => i.id == id);
+
+/* ---------- login ---------- */
+async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { $('#login').classList.remove('hide'); $('#top').classList.add('hide'); $('#view').innerHTML = ''; return; }
+  me = session.user.email;
+  $('#login').classList.add('hide'); $('#top').classList.remove('hide'); $('#me').textContent = me;
+  await safe(async () => {
+    if (!(await q(sb.rpc('ord_ok')))) { $('#view').innerHTML = '<div class="card"><h2>Not set up yet</h2><p>Your login works, but it has not been added to the orders system. Ask the office to add you under Staff.</p></div>'; return; }
+    await loadLists(); go(location.hash.slice(1) || 'list');
+  });
+}
+$('#li-go').onclick = () => safe(async () => {
+  const { error } = await sb.auth.signInWithPassword({ email: $('#li-email').value.trim(), password: $('#li-pass').value });
+  if (error) throw new Error('Wrong email or password');
+  boot();
+});
+$('#li-pass').onkeydown = e => { if (e.key === 'Enter') $('#li-go').click(); };
+$('#signout').onclick = async e => { e.preventDefault(); await sb.auth.signOut(); location.hash = ''; boot(); };
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => go(b.dataset.tab));
+window.onhashchange = () => { const h = location.hash.slice(1); if (h && h !== S.cur) go(h); };
+
+function go(tab) {
+  S.cur = tab; if (location.hash.slice(1) !== tab) location.hash = tab;
+  const base = tab.split('/')[0];
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === base));
+  safe(async () => {
+    if (base === 'new') return orderScreen(null);
+    if (base === 'order') return orderScreen(Number(tab.split('/')[1]));
+    if (base === 'setup') return setupScreen();
+    if (base === 'staff') return staffScreen();
+    return listScreen();
+  });
+}
+
+/* ---------- helpers for picking / adding ---------- */
+async function addCustomer() {
+  const name = (prompt('New customer name:') || '').trim(); if (!name) return null;
+  const row = await q(sb.from('ord_customers').insert({ name }).select().single());
+  customers.push(row); customers.sort((a, b) => a.name.localeCompare(b.name)); toast('Customer added'); return row;
+}
+async function addItem() {
+  const name = (prompt('New item name:') || '').trim(); if (!name) return null;
+  const ou = (prompt('How is it ORDERED? Type: each, kg or box', 'kg') || 'kg').trim().toLowerCase();
+  const cu = (prompt('How is it CHARGED? Type: each, kg or box', ou === 'each' ? 'kg' : ou) || 'kg').trim().toLowerCase();
+  if (!UNITS[ou] || !UNITS[cu]) { toast('Units must be each, kg or box', true); return null; }
+  const row = await q(sb.from('ord_items').insert({ name, order_unit: ou, charge_unit: cu }).select().single());
+  items.push(row); items.sort((a, b) => a.name.localeCompare(b.name)); toast('Item added'); return row;
+}
+function custOptions(sel) {
+  return '<option value="">— choose customer —</option>' +
+    customers.filter(c => c.active || c.id == sel).map(c => `<option value="${c.id}" ${c.id == sel ? 'selected' : ''}>${esc(c.name)}</option>`).join('') +
+    '<option value="__new">+ Add new customer…</option>';
+}
+function itemOptions(sel) {
+  return '<option value="">— choose item —</option>' +
+    items.filter(i => i.active || i.id == sel).map(i => `<option value="${i.id}" ${i.id == sel ? 'selected' : ''}>${esc(i.name)}</option>`).join('') +
+    '<option value="__new">+ Add new item…</option>';
+}
+
+/* ---------- order screen (new, edit, fulfil, invoice) ---------- */
+let O = null; // working copy
+let lastPrices = {};
+
+async function loadLastPrices(customerId) {
+  lastPrices = {};
+  if (!customerId) return;
+  const rows = await q(sb.from('ord_last_prices').select('*').eq('customer_id', customerId));
+  rows.forEach(r => lastPrices[r.item_id] = r);
+}
+const unitsMatch = it => it && it.order_unit === it.charge_unit;
+function lineCharge(l) {
+  const it = item(l.item_id);
+  if (l.qty_charged !== '' && l.qty_charged != null) return Number(l.qty_charged);
+  if (unitsMatch(it) && l.qty_ordered !== '' && l.qty_ordered != null) return Number(l.qty_ordered);
+  return null;
+}
+function lineTotal(l) {
+  const c = lineCharge(l); if (c == null || l.price === '' || l.price == null || l.removed) return null;
+  return Math.round(c * Number(l.price) * 100) / 100;
+}
+
+async function orderScreen(id) {
+  if (id) {
+    const o = await q(sb.from('ord_orders').select('*').eq('id', id).single());
+    const lines = await q(sb.from('ord_lines').select('*').eq('order_id', id).order('position'));
+    O = { ...o, lines: lines.map(l => ({ ...l, saved: true })) };
+  } else {
+    O = { id: null, customer_id: '', delivery_date: isoDay(1), notes: '', status: 'new', lines: [blankLine(false)] };
+  }
+  await loadLastPrices(O.customer_id);
+  drawOrder();
+}
+function blankLine(byOps) { return { item_id: '', qty_ordered: '', qty_charged: '', price: '', removed: false, added_by_ops: byOps, saved: false }; }
+
+function drawOrder() {
+  const o = O, locked = o.status === 'invoiced', isNew = !o.id;
+  const showActual = !isNew; // weights are entered once the order exists
+  let total = 0, missing = false;
+  const rows = o.lines.map((l, ix) => {
+    const it = item(l.item_id), t = lineTotal(l);
+    if (!l.removed) { if (t == null) missing = true; else total += t; }
+    const lp = lastPrices[l.item_id];
+    const lastBox = lp && !locked ? `<div><span class="last" data-fill="${ix}" title="Click to use this price">Last invoiced: ${money(lp.price)}/${it ? it.charge_unit : ''} · ${ukDate(lp.delivery_date)}</span></div>` : '';
+    const dis = locked || l.removed ? 'disabled' : '';
+    return `<tr class="${l.removed ? 'removed' : ''}">
+      <td data-l="Item">${locked ? esc(it?.name) : `<select data-ix="${ix}" data-f="item_id" ${dis}>${itemOptions(l.item_id)}</select>`}
+        ${l.added_by_ops ? '<span class="tag">added</span>' : ''}${l.removed ? '<span class="tag">removed</span>' : ''}</td>
+      <td data-l="Ordered" class="num">${l.added_by_ops ? '<span class="muted">—</span>' :
+        (locked || !isNew && o.status !== 'new' ? qtyFmt(l.qty_ordered) : `<input class="n" inputmode="decimal" data-ix="${ix}" data-f="qty_ordered" value="${esc(qtyFmt(l.qty_ordered))}" ${dis}>`)}
+        <span class="unit">${it ? it.order_unit : ''}</span></td>
+      ${showActual ? `<td data-l="Actual sent" class="num">${locked ? qtyFmt(l.qty_charged) : `<input class="n" inputmode="decimal" data-ix="${ix}" data-f="qty_charged" placeholder="${unitsMatch(it) && l.qty_ordered !== '' && l.qty_ordered != null ? qtyFmt(l.qty_ordered) : 'weigh'}" value="${esc(qtyFmt(l.qty_charged))}" ${dis}>`}
+        <span class="unit">${it ? it.charge_unit : ''}</span></td>` : ''}
+      <td data-l="Price" class="num">${locked ? money(l.price) : `£ <input class="n" inputmode="decimal" data-ix="${ix}" data-f="price" value="${esc(l.price ?? '')}" ${dis}>`}
+        <span class="unit">${it ? '/' + it.charge_unit : ''}</span>${lastBox}</td>
+      <td data-l="Total" class="num" id="lt-${ix}">${l.removed ? '' : money(t)}</td>
+      <td class="keep">${locked ? '' : (l.removed ? `<button class="link" data-undo="${ix}">Put back</button>` : `<button class="link" data-del="${ix}">Remove</button>`)}</td>
+    </tr>`;
+  }).join('');
+
+  const statusTxt = { new: 'New', fulfilled: 'Fulfilled', invoiced: 'Invoiced' }[o.status];
+  $('#view').innerHTML = `<div class="card">
+    <h2>${isNew ? 'New order' : `Order #${o.id} <span class="badge s-${o.status}">${statusTxt}</span>`}</h2>
+    ${!isNew ? `<p class="muted">Taken by ${esc(o.created_by)}${o.fulfilled_by ? ` · fulfilled by ${esc(o.fulfilled_by)}` : ''}${o.status === 'invoiced' ? ` · invoiced by ${esc(o.invoiced_by)}${o.invoice_number ? ' — invoice ' + esc(o.invoice_number) : ''}` : ''}</p>` : ''}
+    <div class="row">
+      <div><label>Customer</label>${locked ? `<div>${esc(cust(o.customer_id)?.name)}</div>` : `<select id="o-cust">${custOptions(o.customer_id)}</select>`}</div>
+      <div><label>Delivery date</label>${locked ? `<div>${ukDate(o.delivery_date)}</div>` : `<input id="o-date" type="date" value="${esc(o.delivery_date)}">`}</div>
+    </div>
+    <label>Items</label>
+    <table class="lines"><thead><tr><th>Item</th><th class="num">Ordered</th>${showActual ? '<th class="num">Actual sent</th>' : ''}<th class="num">Price</th><th class="num">Total</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    ${locked ? '' : `<div class="actions"><button class="btn" id="o-addline">+ Add item</button></div>`}
+    <div class="total" id="o-total">${totalHtml(total, missing)}</div>
+    <label>Notes</label>${locked ? `<div>${esc(o.notes) || '<span class="muted">none</span>'}</div>` : `<textarea id="o-notes">${esc(o.notes)}</textarea>`}
+    <div class="actions">${actionButtons(o)}</div>
+  </div>`;
+
+  // wire up
+  const cs = $('#o-cust');
+  if (cs) cs.onchange = () => safe(async () => {
+    if (cs.value === '__new') { const c = await addCustomer(); O.customer_id = c ? c.id : O.customer_id; }
+    else O.customer_id = cs.value;
+    await loadLastPrices(O.customer_id); autofillPrices(); drawOrder();
+  });
+  const ds = $('#o-date'); if (ds) ds.onchange = () => O.delivery_date = ds.value;
+  const ns = $('#o-notes'); if (ns) ns.oninput = () => O.notes = ns.value;
+  document.querySelectorAll('[data-ix]').forEach(el => {
+    const l = O.lines[el.dataset.ix], f = el.dataset.f;
+    if (el.tagName === 'SELECT') el.onchange = () => safe(async () => {
+      if (el.value === '__new') { const it = await addItem(); l.item_id = it ? it.id : l.item_id; } else l.item_id = el.value;
+      const lp = lastPrices[l.item_id]; if (lp && (l.price === '' || l.price == null)) l.price = lp.price;
+      drawOrder();
+    });
+    else el.oninput = () => { l[f] = el.value.trim(); updateTotals(); };
+  });
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    const l = O.lines[b.dataset.del];
+    if (!l.saved) O.lines.splice(b.dataset.del, 1); else l.removed = true;
+    drawOrder();
+  });
+  document.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => { O.lines[b.dataset.undo].removed = false; drawOrder(); });
+  document.querySelectorAll('[data-fill]').forEach(b => b.onclick = () => { const l = O.lines[b.dataset.fill]; l.price = lastPrices[l.item_id].price; drawOrder(); });
+  const al = $('#o-addline'); if (al) al.onclick = () => { O.lines.push(blankLine(!!O.id)); drawOrder(); };
+  document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => saveOrder(b.dataset.act));
+  const del = $('#o-delete'); if (del) del.onclick = () => safe(async () => {
+    if (!confirm('Delete order #' + O.id + '? This cannot be undone.')) return;
+    await q(sb.from('ord_orders').delete().eq('id', O.id)); toast('Order deleted'); go('list');
+  });
+}
+function totalHtml(total, missing) {
+  return `Total: ${money(total)}${missing ? ' <span class="muted">(some lines have no weight or price yet)</span>' : ''}`;
+}
+function updateTotals() {
+  let total = 0, missing = false;
+  O.lines.forEach((l, ix) => {
+    const t = lineTotal(l), cell = document.getElementById('lt-' + ix);
+    if (!l.removed) { if (t == null) missing = true; else total += t; }
+    if (cell) cell.textContent = l.removed ? '' : money(t);
+  });
+  const el = document.getElementById('o-total'); if (el) el.innerHTML = totalHtml(total, missing);
+}
+function autofillPrices() {
+  O.lines.forEach(l => { const lp = lastPrices[l.item_id]; if (lp && (l.price === '' || l.price == null)) l.price = lp.price; });
+}
+function actionButtons(o) {
+  if (!o.id) return `<button class="big" data-act="save">Save order</button><button class="btn" onclick="go('list')">Cancel</button>`;
+  if (o.status === 'new') return `<button class="btn blue" data-act="save">Save changes</button>
+      <button class="big" data-act="fulfil">✓ Save &amp; mark fulfilled</button>
+      <button class="btn" onclick="go('list')">Back</button><button class="btn red" id="o-delete" style="margin-left:auto">Delete order</button>`;
+  if (o.status === 'fulfilled') return `<button class="btn blue" data-act="save">Save changes</button>
+      <button class="big" data-act="invoice">Mark invoiced</button>
+      <button class="btn" data-act="unfulfil">Undo fulfilled</button><button class="btn" onclick="go('list')">Back</button>`;
+  return `<button class="btn" data-act="uninvoice">Undo invoiced</button><button class="btn" onclick="go('list')">Back</button>`;
+}
+
+function saveOrder(action) {
+  safe(async () => {
+    const o = O;
+    if (action !== 'uninvoice') {
+      if (!o.customer_id || o.customer_id === '__new') throw new Error('Choose a customer');
+      o.lines = o.lines.filter(l => l.item_id && l.item_id !== '__new' || l.qty_ordered || l.qty_charged);
+      if (!o.lines.length) { o.lines.push(blankLine(!!o.id)); drawOrder(); throw new Error('Add at least one item'); }
+      for (const l of o.lines) {
+        if (!l.item_id || l.item_id === '__new') throw new Error('Choose the item on every line (or remove the empty line)');
+        if (!l.added_by_ops && !l.removed && (l.qty_ordered === '' || l.qty_ordered == null)) throw new Error(`Enter a quantity for ${item(l.item_id).name}`);
+        for (const f of ['qty_ordered', 'qty_charged', 'price']) if (l[f] !== '' && l[f] != null && isNaN(Number(l[f]))) throw new Error(`"${l[f]}" is not a number (${item(l.item_id).name})`);
+      }
+      if (action === 'fulfil') {
+        // fill actual = ordered where units match and nothing typed
+        o.lines.forEach(l => { const it = item(l.item_id); if (!l.removed && (l.qty_charged === '' || l.qty_charged == null) && unitsMatch(it) && !l.added_by_ops) l.qty_charged = l.qty_ordered; });
+        const need = o.lines.filter(l => !l.removed && (l.qty_charged === '' || l.qty_charged == null));
+        if (need.length) { drawOrder(); throw new Error('Enter the actual weight / qty for: ' + need.map(l => item(l.item_id).name).join(', ')); }
+      }
+    }
+    let invoice_number = null;
+    if (action === 'invoice') {
+      const noPrice = o.lines.filter(l => !l.removed && (l.price === '' || l.price == null));
+      if (noPrice.length) throw new Error('Add a price for: ' + noPrice.map(l => item(l.item_id).name).join(', '));
+      invoice_number = prompt('Xero invoice number (optional, e.g. INV-10850):', '');
+      if (invoice_number === null) return;
+    }
+    if (action === 'unfulfil' && !confirm('Move this order back to New?')) return;
+    if (action === 'uninvoice' && !confirm('Undo invoiced? (Remember to fix the invoice in Xero too if needed.)')) return;
+    const payload = { id: o.id, action, customer_id: o.customer_id, delivery_date: o.delivery_date, notes: o.notes, invoice_number };
+    if (action !== 'uninvoice') payload.lines = o.lines.map(l => ({ item_id: l.item_id, qty_ordered: l.added_by_ops ? null : l.qty_ordered, qty_charged: l.qty_charged, price: l.price, added_by_ops: l.added_by_ops, removed: l.removed }));
+    const id = await q(sb.rpc('ord_save', { p: payload }));
+    toast({ save: 'Saved', fulfil: 'Marked fulfilled', invoice: 'Marked invoiced', unfulfil: 'Back to New', uninvoice: 'Back to Fulfilled' }[action]);
+    if (!o.id) return go('list');
+    await orderScreen(id);
+  });
+}
+
+/* ---------- orders table ---------- */
+async function listScreen() {
+  let qy = sb.from('ord_orders').select('*, ord_lines(*)').order('delivery_date', { ascending: true }).order('id');
+  if (S.filter === 'open') qy = qy.in('status', ['new', 'fulfilled']);
+  else if (S.filter !== 'all') qy = qy.eq('status', S.filter);
+  if (S.date) qy = qy.eq('delivery_date', S.date);
+  if (S.filter === 'invoiced' || S.filter === 'all') qy = qy.limit(300);
+  const orders = await q(qy);
+  const counts = {};
+  const rows = orders.map(o => {
+    const lines = o.ord_lines.sort((a, b) => a.position - b.position);
+    const tot = lines.reduce((s, l) => { const t = lineTotal(l); return t == null ? s : s + t; }, 0);
+    const summary = lines.filter(l => !l.removed).map(l => {
+      const it = item(l.item_id);
+      const shown = l.qty_charged != null ? `${qtyFmt(l.qty_charged)} ${it?.charge_unit}` : `${qtyFmt(l.qty_ordered)} ${it?.order_unit}`;
+      return `${esc(it?.name)} <b>${shown}</b>`;
+    }).join(' · ');
+    return `<tr class="click" data-open="${o.id}">
+      <td>#${o.id}</td><td>${ukDate(o.delivery_date)}</td><td><b>${esc(cust(o.customer_id)?.name)}</b></td>
+      <td style="font-size:15px">${summary}${o.notes ? `<div class="muted">📝 ${esc(o.notes)}</div>` : ''}</td>
+      <td class="num">${tot ? (o.status === 'new' ? '<span class="muted">approx </span>' : '') + money(tot) : '—'}</td>
+      <td><span class="badge s-${o.status}">${{ new: 'New', fulfilled: 'Fulfilled', invoiced: 'Invoiced' }[o.status]}</span>${o.invoice_number ? `<div class="muted">${esc(o.invoice_number)}</div>` : ''}</td>
+      <td class="muted">${esc((o.created_by || '').split('@')[0])}</td></tr>`;
+  }).join('');
+  const f = (k, t) => `<button data-f="${k}" class="${S.filter === k ? 'on' : ''}">${t}</button>`;
+  $('#view').innerHTML = `<div class="card">
+    <h2>Orders</h2>
+    <div class="filters">${f('open', 'Open (not invoiced)')}${f('new', 'New')}${f('fulfilled', 'Fulfilled – to invoice')}${f('invoiced', 'Invoiced')}${f('all', 'All')}
+      <span style="margin-left:12px">Delivery date:</span> <input type="date" id="f-date" value="${S.date}">
+      ${S.date ? '<button class="link" id="f-clear">show all dates</button>' : ''}
+      <button class="link" id="f-today">today</button><button class="link" id="f-tom">tomorrow</button></div>
+    ${orders.length ? `<table><thead><tr><th>#</th><th>Delivery</th><th>Customer</th><th>Items</th><th class="num">Total</th><th>Status</th><th>By</th></tr></thead><tbody>${rows}</tbody></table>`
+      : '<p class="muted">No orders here.</p>'}
+  </div>`;
+  document.querySelectorAll('.filters [data-f]').forEach(b => b.onclick = () => { S.filter = b.dataset.f; listScreen(); });
+  $('#f-date').onchange = e => { S.date = e.target.value; listScreen(); };
+  if ($('#f-clear')) $('#f-clear').onclick = () => { S.date = ''; listScreen(); };
+  $('#f-today').onclick = () => { S.date = isoDay(0); listScreen(); };
+  $('#f-tom').onclick = () => { S.date = isoDay(1); listScreen(); };
+  document.querySelectorAll('[data-open]').forEach(r => r.onclick = () => go('order/' + r.dataset.open));
+}
+
+/* ---------- customers & items ---------- */
+async function setupScreen() {
+  await loadLists();
+  const unitSel = (id, f, v) => `<select data-item="${id}" data-uf="${f}">${Object.keys(UNITS).map(u => `<option ${u === v ? 'selected' : ''}>${u}</option>`).join('')}</select>`;
+  $('#view').innerHTML = `<div class="row" style="align-items:flex-start">
+    <div class="card"><h2>Customers</h2><button class="btn blue" id="s-addc">+ Add customer</button>
+      <table style="margin-top:10px"><tbody>${customers.map(c => `<tr class="${c.active ? '' : 'removed'}"><td>${esc(c.name)}</td>
+        <td class="keep num"><button class="link" data-rc="${c.id}">Rename</button><button class="link" data-hc="${c.id}">${c.active ? 'Hide' : 'Show'}</button></td></tr>`).join('')}</tbody></table></div>
+    <div class="card"><h2>Items</h2><button class="btn blue" id="s-addi">+ Add item</button>
+      <p class="muted">"Ordered by" is what the order taker types (e.g. 6 each). "Charged by" is what ops enter and the price is per (e.g. kg).</p>
+      <table><thead><tr><th>Item</th><th>Ordered by</th><th>Charged by</th><th></th></tr></thead><tbody>${items.map(i => `<tr class="${i.active ? '' : 'removed'}"><td>${esc(i.name)}</td>
+        <td class="keep">${unitSel(i.id, 'order_unit', i.order_unit)}</td><td class="keep">${unitSel(i.id, 'charge_unit', i.charge_unit)}</td>
+        <td class="keep num"><button class="link" data-ri="${i.id}">Rename</button><button class="link" data-hi="${i.id}">${i.active ? 'Hide' : 'Show'}</button></td></tr>`).join('')}</tbody></table></div>
+  </div>`;
+  $('#s-addc').onclick = () => safe(async () => { if (await addCustomer()) setupScreen(); });
+  $('#s-addi').onclick = () => safe(async () => { if (await addItem()) setupScreen(); });
+  const upd = (tbl, id, patch) => safe(async () => { await q(sb.from(tbl).update(patch).eq('id', id)); toast('Saved'); setupScreen(); });
+  document.querySelectorAll('[data-rc]').forEach(b => b.onclick = () => { const c = cust(b.dataset.rc), n = prompt('Rename customer:', c.name); if (n && n.trim()) upd('ord_customers', c.id, { name: n.trim() }); });
+  document.querySelectorAll('[data-hc]').forEach(b => b.onclick = () => { const c = cust(b.dataset.hc); upd('ord_customers', c.id, { active: !c.active }); });
+  document.querySelectorAll('[data-ri]').forEach(b => b.onclick = () => { const i = item(b.dataset.ri), n = prompt('Rename item:', i.name); if (n && n.trim()) upd('ord_items', i.id, { name: n.trim() }); });
+  document.querySelectorAll('[data-hi]').forEach(b => b.onclick = () => { const i = item(b.dataset.hi); upd('ord_items', i.id, { active: !i.active }); });
+  document.querySelectorAll('[data-uf]').forEach(s => s.onchange = () => upd('ord_items', s.dataset.item, { [s.dataset.uf]: s.value }));
+}
+
+/* ---------- staff ---------- */
+async function staffScreen() {
+  const people = await q(sb.from('ord_users').select('*').order('name'));
+  $('#view').innerHTML = `<div class="card"><h2>Staff who can use orders</h2>
+    <table><thead><tr><th>Name</th><th>Email (login)</th><th></th></tr></thead><tbody>${people.map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.email)}</td>
+      <td class="num">${p.email === me.toLowerCase() ? '<span class="muted">you</span>' : `<button class="link" data-rm="${esc(p.email)}">Remove</button>`}</td></tr>`).join('')}</tbody></table></div>
+  <div class="card"><h2>Add a person</h2>
+    <div class="row"><div><label>Name</label><input id="p-name"></div><div><label>Email</label><input id="p-email" type="email"></div>
+    <div><label>Starting password</label><input id="p-pass" placeholder="at least 6 characters"></div></div>
+    <p class="muted">Give them their email and this password. They can change it below once signed in.</p>
+    <div class="actions"><button class="big" id="p-add">Add person</button></div></div>
+  <div class="card"><h2>Change my password</h2><div class="row"><div><label>New password</label><input id="p-mine" type="password"></div></div>
+    <div class="actions"><button class="btn blue" id="p-chg">Change password</button></div></div>`;
+  $('#p-add').onclick = () => safe(async () => {
+    await q(sb.rpc('ord_add_person', { p_email: $('#p-email').value, p_name: $('#p-name').value, p_password: $('#p-pass').value }));
+    toast('Added'); staffScreen();
+  });
+  document.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => safe(async () => {
+    if (!confirm('Remove ' + b.dataset.rm + ' from orders?')) return;
+    await q(sb.from('ord_users').delete().eq('email', b.dataset.rm)); toast('Removed'); staffScreen();
+  }));
+  $('#p-chg').onclick = () => safe(async () => {
+    const pw = $('#p-mine').value; if (pw.length < 6) throw new Error('At least 6 characters');
+    const { error } = await sb.auth.updateUser({ password: pw }); if (error) throw error; toast('Password changed'); $('#p-mine').value = '';
+  });
+}
+
+boot();
+</script>
+</body>
+</html>
