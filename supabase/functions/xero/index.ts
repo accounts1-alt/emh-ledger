@@ -3,6 +3,7 @@
 //  POST /xero {action:'status'}        any orders user: is Xero connected?
 //  POST /xero {action:'auth_url'}      admin: link to start connecting
 //  POST /xero {action:'disconnect'}    admin
+//  POST /xero {action:'sync'}          admin: Xero is master - pull all customers and items
 //  POST /xero {action:'send', order_id} admin/invoicing: create a DRAFT invoice in Xero, mark order invoiced
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -121,6 +122,76 @@ async function send(orderId: number, who: string) {
   return { invoice_number: x.InvoiceNumber, total: x.Total };
 }
 
+const norm = (s: string) => (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** Xero is the master list: bring in every customer and item, overwrite names, archive/delete what's gone. */
+async function sync(who: string) {
+  // ---- customers ----
+  const contacts: { ContactID: string; Name: string; ContactStatus: string; IsCustomer?: boolean; IsSupplier?: boolean }[] = [];
+  for (let page = 1; page < 50; page++) {
+    const r = await xero(`Contacts?page=${page}&pageSize=500`);
+    const c = r.Contacts ?? [];
+    contacts.push(...c);
+    if (c.length < 500) break;
+  }
+  const xc = contacts.filter(c => c.ContactStatus === 'ACTIVE' && (c.IsCustomer || !c.IsSupplier));
+  const { data: appC } = await db.from('ord_customers').select('*');
+  const cById = new Map((appC ?? []).filter(c => c.xero_contact_id).map(c => [c.xero_contact_id, c]));
+  const cUnlinked = new Map((appC ?? []).filter(c => !c.xero_contact_id).map(c => [norm(c.name), c]));
+  const res = { customers_added: 0, customers_updated: 0, customers_archived: 0, customers_deleted: 0, items_added: 0, items_updated: 0, items_archived: 0, items_deleted: 0 };
+  const seenC = new Set<string>();
+  const newC: Record<string, unknown>[] = [];
+  for (const x of xc) {
+    seenC.add(x.ContactID);
+    const row = cById.get(x.ContactID) ?? cUnlinked.get(norm(x.Name));
+    if (row) {
+      cUnlinked.delete(norm(row.name));
+      if (row.name !== x.Name || row.xero_contact_id !== x.ContactID || !row.active || row.orphaned) {
+        await db.from('ord_customers').update({ name: x.Name, xero_contact_id: x.ContactID, active: true, orphaned: false }).eq('id', row.id);
+        res.customers_updated++;
+      }
+    } else newC.push({ name: x.Name, xero_contact_id: x.ContactID, created_by: 'xero sync' });
+  }
+  if (newC.length) { const { error } = await db.from('ord_customers').insert(newC); if (error) throw new Fail(`Saving customers: ${error.message}`); res.customers_added = newC.length; }
+  for (const c of appC ?? []) {
+    if (!c.xero_contact_id || seenC.has(c.xero_contact_id)) continue;           // app-only new customers are kept until their first invoice
+    const { count } = await db.from('ord_orders').select('id', { count: 'exact', head: true }).eq('customer_id', c.id);
+    if (count) { if (!c.orphaned) { await db.from('ord_customers').update({ active: false, orphaned: true }).eq('id', c.id); res.customers_archived++; } }
+    else { await db.from('ord_customers').delete().eq('id', c.id); res.customers_deleted++; }
+  }
+
+  // ---- items ----
+  const xi = ((await xero('Items')).Items ?? []).filter((i: { IsSold?: boolean }) => i.IsSold !== false) as { ItemID: string; Code: string; Name?: string }[];
+  const { data: appI } = await db.from('ord_items').select('*');
+  const iById = new Map((appI ?? []).filter(i => i.xero_item_id).map(i => [i.xero_item_id, i]));
+  const iByCode = new Map((appI ?? []).filter(i => !i.xero_item_id && i.xero_code).map(i => [i.xero_code, i]));
+  const iUnlinked = new Map((appI ?? []).filter(i => !i.xero_item_id && !i.xero_code).map(i => [norm(i.name), i]));
+  const seenI = new Set<number>();
+  const newI: Record<string, unknown>[] = [];
+  for (const x of xi) {
+    const name = (x.Name || x.Code).trim();
+    const row = iById.get(x.ItemID) ?? iByCode.get(x.Code) ?? iUnlinked.get(norm(name));
+    if (row) {
+      seenI.add(row.id); iByCode.delete(x.Code); iUnlinked.delete(norm(row.name));
+      if (row.name !== name || row.xero_code !== x.Code || row.xero_item_id !== x.ItemID || !row.active || row.orphaned) {
+        await db.from('ord_items').update({ name, xero_code: x.Code, xero_item_id: x.ItemID, active: true, orphaned: false }).eq('id', row.id);
+        res.items_updated++;
+      }
+    } else newI.push({ name, xero_code: x.Code, xero_item_id: x.ItemID, created_by: 'xero sync' });
+  }
+  if (newI.length) { const { error } = await db.from('ord_items').insert(newI); if (error) throw new Fail(`Saving items: ${error.message}`); res.items_added = newI.length; }
+  for (const i of appI ?? []) {
+    if (seenI.has(i.id) || (!i.xero_code && !i.xero_item_id)) continue;           // app-only items are kept
+    const { count: a } = await db.from('ord_lines').select('id', { count: 'exact', head: true }).eq('item_id', i.id);
+    const { count: b } = await db.from('ord_lines').select('id', { count: 'exact', head: true }).eq('orig_item_id', i.id);
+    if ((a ?? 0) + (b ?? 0)) { if (!i.orphaned) { await db.from('ord_items').update({ active: false, orphaned: true }).eq('id', i.id); res.items_archived++; } }
+    else { await db.from('ord_items').delete().eq('id', i.id); res.items_deleted++; }
+  }
+  const stamp = JSON.stringify({ at: new Date().toISOString(), by: who, ...res });
+  await db.from('ord_settings').upsert({ key: 'last_xero_sync', value: stamp });
+  return res;
+}
+
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   const url = new URL(req.url);
@@ -160,6 +231,10 @@ Deno.serve(async req => {
       if (me.role !== 'admin') throw new Fail('Only admins can disconnect Xero');
       await db.from('xero_auth').update({ access_token: null, refresh_token: null, tenant_id: null, tenant_name: null }).eq('id', 1);
       return json({ ok: true });
+    }
+    if (b.action === 'sync') {
+      if (me.role !== 'admin') throw new Fail('Only admins can sync with Xero');
+      return json(await sync(me.email));
     }
     if (b.action === 'send') {
       if (!['admin', 'invoicing'].includes(me.role)) throw new Fail('Only invoicing can send invoices');

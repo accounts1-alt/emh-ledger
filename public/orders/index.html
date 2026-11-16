@@ -238,7 +238,7 @@ function combo(el, o) {
     shown = o.list().filter(r => r.active !== false && words.every(w => r.name.toLowerCase().includes(w))).slice(0, 40).map(r => ({ id: r.id, label: r.name }));
     if (o.onAdd && t && !o.list().some(r => r.name.toLowerCase() === t)) shown.push({ add: inp.value.trim(), label: `+ Add “${inp.value.trim()}” as a new ${o.addWord}` });
     hi = Math.min(hi, Math.max(0, shown.length - 1));
-    box.innerHTML = shown.length ? shown.map((s, i) => `<div class="opt ${s.add != null ? 'add' : ''} ${i === hi ? 'hi' : ''}" data-i="${i}">${esc(s.label)}</div>`).join('') : '<div class="opt muted">Nothing found</div>';
+    box.innerHTML = shown.length ? shown.map((s, i) => `<div class="opt ${s.add != null ? 'add' : ''} ${i === hi ? 'hi' : ''}" data-i="${i}">${esc(s.label)}</div>`).join('') : `<div class="opt muted">Nothing found${o.addWord === 'item' ? ' – add it in Xero, then Sync in Settings' : ''}</div>`;
     box.classList.remove('hide');
   }
   async function pick(s) {
@@ -260,6 +260,7 @@ function combo(el, o) {
   return { focus: () => inp.focus() };
 }
 async function newCustomer(name) {
+  const dup = customers.find(c => c.name.toLowerCase() === name.trim().toLowerCase() && !c.orphaned); if (dup) return dup;
   const row = await q(sb.from('ord_customers').insert({ name }).select().single());
   customers.push(row); customers.sort((a, b) => a.name.localeCompare(b.name)); toast('Customer added'); return row;
 }
@@ -387,7 +388,7 @@ function drawLines(focusLast) {
       ${tog(l.unit, '')}
       <button class="link">✕ remove</button>`;
     box.appendChild(row);
-    const c = combo(row.querySelector('.c'), { list: () => items, value: l.item_id, placeholder: 'Type item name…', addWord: 'item', onAdd: newItem, onPick: id => { l.item_id = id; row.querySelector('.q').focus(); } });
+    const c = combo(row.querySelector('.c'), { list: () => items, value: l.item_id, placeholder: 'Type item name…', addWord: 'item', onPick: id => { l.item_id = id; row.querySelector('.q').focus(); } });
     row.querySelector('.q').oninput = e => l.qty_ordered = e.target.value.trim();
     row.querySelectorAll('.tog button').forEach(b => b.onclick = () => {
       l.unit = b.dataset.u; row.querySelectorAll('.tog button').forEach(x => x.classList.toggle('on', x === b)); row.querySelector('.tog').classList.remove('need');
@@ -554,12 +555,12 @@ function openWeigh(o) {
     wl.querySelectorAll('[data-ld]').forEach(i => i.oninput = () => lines[i.dataset.ld].ld = i.value);
     wl.querySelectorAll('[data-ec]').forEach(el => {
       const ix = +el.dataset.ec, l = lines[ix];
-      combo(el, { list: () => items, value: l.newItem, placeholder: 'Type the item sent…', addWord: 'item', onAdd: newItem, onPick: id => { l.newItem = id; if (!l.id) l.item_id = id; l.mode = null; draw(ix); } });
+      combo(el, { list: () => items, value: l.newItem, placeholder: 'Type the item sent…', addWord: 'item', onPick: id => { l.newItem = id; if (!l.id) l.item_id = id; l.mode = null; draw(ix); } });
     });
     if (focusIx != null) wl.querySelector(`.wi[data-ix="${focusIx}"]`)?.focus();
   }
   draw();
-  combo(m.querySelector('.ac'), { list: () => items, value: null, clear: true, placeholder: '+ Add item', addWord: 'item', onAdd: newItem,
+  combo(m.querySelector('.ac'), { list: () => items, value: null, clear: true, placeholder: '+ Add item', addWord: 'item',
     onPick: id => { lines.push({ id: null, item_id: id, newItem: id, added_by_ops: true, w: '', t: '0', mode: null }); draw(lines.length - 1); } });
   m.querySelector('.mbox').addEventListener('click', e => { if (!e.target.closest('.dots')) m.querySelectorAll('.dm').forEach(x => x.classList.add('hide')); });
   m.querySelector('.mx').onclick = close; m.querySelector('[data-c]').onclick = close;
@@ -730,35 +731,48 @@ async function allScreen() {
 /* ================= ADMIN: customers & items ================= */
 async function setupScreen() {
   await loadLists();
-  const list = (rows, kind) => rows.map(r => `<tr style="${r.active ? '' : 'color:#999'}" data-name="${esc(r.name.toLowerCase())}"><td>${esc(r.name)}${r.active ? '' : ' <span class="tag">hidden</span>'}</td>
-    <td class="num"><button class="link" data-rn="${kind}:${r.id}">Rename</button><button class="link" data-hd="${kind}:${r.id}">${r.active ? 'Hide' : 'Show'}</button></td></tr>`).join('');
   await xeroStatus();
+  const lastRow = (await q(sb.from('ord_settings').select('value').eq('key', 'last_xero_sync')))[0];
+  const last = lastRow ? JSON.parse(lastRow.value) : null;
+  const badge = (r, kind) => r.orphaned ? '<span class="tg tg-rem">deleted in Xero – archived</span>'
+    : (kind === 'c' ? !r.xero_contact_id : !r.xero_code) ? `<span class="tg tg-ed">${kind === 'c' ? 'new – goes to Xero with first invoice' : 'app only – not in Xero'}</span>` : '';
+  const list = (rows, kind) => rows.slice().sort((x, y) => (x.orphaned - y.orphaned) || x.name.localeCompare(y.name))
+    .map(r => `<tr style="${r.orphaned ? 'color:#999' : ''}" data-name="${esc(r.name.toLowerCase())}"><td>${esc(r.name)} ${badge(r, kind)}</td>${kind === 'i' ? `<td class="muted num">${esc(r.xero_code || '')}</td>` : ''}</tr>`).join('');
+  const nC = customers.filter(c => !c.orphaned).length, nI = items.filter(i => !i.orphaned).length;
   $('#view').innerHTML = `<div class="card"><h2>Xero</h2>
-    ${XERO.connected ? `<p>✅ Connected to <b>${esc(XERO.tenant_name)}</b>${XERO.connected_by ? ` by ${esc(uname(XERO.connected_by))}` : ''}. Invoicing has a <b>Send to Xero</b> button that creates a <b>draft</b> invoice.</p>
-      <div class="actions"><button class="btn" id="x-con">Reconnect</button><button class="link" id="x-dis">Disconnect</button></div>`
+    ${XERO.connected ? `<p>✅ Connected to <b>${esc(XERO.tenant_name)}</b>. Customers and items come from Xero – press <b>Sync with Xero</b> after adding or changing them in Xero.</p>
+      <div class="actions"><button class="big blue" id="x-sync">↻ Sync with Xero</button><button class="btn" id="x-con">Reconnect</button><button class="link" id="x-dis">Disconnect</button></div>
+      <p class="muted" id="x-last">${last ? `Last sync ${new Date(last.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} by ${esc(uname(last.by))}: customers +${last.customers_added} added, ${last.customers_updated} updated, ${last.customers_archived} archived, ${last.customers_deleted} removed · items +${last.items_added} added, ${last.items_updated} updated, ${last.items_archived} archived, ${last.items_deleted} removed` : 'Not synced yet.'}</p>`
     : `<p>Not connected. Click below and approve in Xero – you’ll come straight back here.</p>${XERO.client_hint ? `<p class="muted">Client ID in use: <b>${esc(XERO.client_hint)}</b> – it should match the Client ID on your Xero app page (32 characters).</p>` : ''}<div class="actions"><button class="big blue" id="x-con">Connect Xero</button></div>`}</div>
     <div class="card"><h2>Tray weight</h2>
     <div class="row" style="align-items:center"><div style="flex:none"><input id="s-tray" inputmode="decimal" style="width:120px;text-align:right" value="${TRAY}"></div><div style="flex:none">kg per tray</div>
     <div style="flex:none"><button class="btn blue" id="s-tsave">Save</button></div>
     <div class="muted">Processing enters how many trays; this weight × trays is taken off the weight. Changing it only affects weights entered from now on.</div></div></div>
     <div class="row" style="align-items:flex-start">
-    <div class="card"><h2>Customers</h2><div class="row"><input id="s-fc" placeholder="Search, or type a new name and press Add"><button class="btn blue" style="flex:none" id="s-ac">+ Add</button></div>
-      <table style="margin-top:8px"><tbody id="s-tc">${list(customers, 'c')}</tbody></table></div>
-    <div class="card"><h2>Items</h2><div class="row"><input id="s-fi" placeholder="Search, or type a new name and press Add"><button class="btn blue" style="flex:none" id="s-ai">+ Add</button></div>
-      <table style="margin-top:8px"><tbody id="s-ti">${list(items, 'i')}</tbody></table></div></div>`;
+    <div class="card"><h2>Customers <span class="muted">${nC}</span></h2><div class="row"><input id="s-fc" placeholder="Search…"><button class="btn" style="flex:none" id="s-ac">+ New customer</button></div>
+      <p class="muted">New customers added here are created in Xero automatically when their first invoice is sent.</p>
+      <div style="max-height:520px;overflow:auto"><table><tbody id="s-tc">${list(customers, 'c')}</tbody></table></div></div>
+    <div class="card"><h2>Items <span class="muted">${nI}</span></h2><div class="row"><input id="s-fi" placeholder="Search…"></div>
+      <p class="muted">Add new items in Xero, then press Sync.</p>
+      <div style="max-height:520px;overflow:auto"><table><tbody id="s-ti">${list(items, 'i')}</tbody></table></div></div></div>`;
   $('#x-con').onclick = () => safe(async () => { const r = await xeroCall({ action: 'auth_url' }); location.href = r.url; });
   if ($('#x-dis')) $('#x-dis').onclick = () => safe(async () => { if (!confirm('Disconnect Xero?')) return; await xeroCall({ action: 'disconnect' }); setupScreen(); });
+  if ($('#x-sync')) $('#x-sync').onclick = e => safe(async () => {
+    const b = e.target; b.disabled = true; b.textContent = 'Syncing…';
+    try { const r = await xeroCall({ action: 'sync' }); toast(`Synced: ${r.customers_added} new customers, ${r.items_added} new items`); await setupScreen(); }
+    finally { b.disabled = false; b.textContent = '↻ Sync with Xero'; }
+  });
   $('#s-tsave').onclick = () => safe(async () => {
     const v = $('#s-tray').value.trim(); if (!isNum(v) || Number(v) < 0) throw new Error('Enter the tray weight in kg, e.g. 1.65');
     await q(sb.from('ord_settings').update({ value: String(Number(v)) }).eq('key', 'tray_kg')); TRAY = Number(v); toast('Tray weight saved');
   });
   const filt = (inp, tb) => inp.oninput = () => { const t = inp.value.trim().toLowerCase(); tb.querySelectorAll('tr').forEach(r => r.style.display = r.dataset.name.includes(t) ? '' : 'none'); };
   filt($('#s-fc'), $('#s-tc')); filt($('#s-fi'), $('#s-ti'));
-  $('#s-ac').onclick = () => safe(async () => { const n = $('#s-fc').value.trim(); if (!n) throw new Error('Type the new customer name in the box first'); await newCustomer(n); setupScreen(); });
-  $('#s-ai').onclick = () => safe(async () => { const n = $('#s-fi').value.trim(); if (!n) throw new Error('Type the new item name in the box first'); await newItem(n); setupScreen(); });
-  const tbl = k => k === 'c' ? 'ord_customers' : 'ord_items', find = (k, id) => (k === 'c' ? customers : items).find(r => r.id == id);
-  document.querySelectorAll('[data-rn]').forEach(b => b.onclick = () => safe(async () => { const [k, id] = b.dataset.rn.split(':'), r = find(k, id), n = prompt('New name:', r.name); if (!n || !n.trim()) return; await q(sb.from(tbl(k)).update({ name: n.trim() }).eq('id', id)); setupScreen(); }));
-  document.querySelectorAll('[data-hd]').forEach(b => b.onclick = () => safe(async () => { const [k, id] = b.dataset.hd.split(':'), r = find(k, id); await q(sb.from(tbl(k)).update({ active: !r.active }).eq('id', id)); setupScreen(); }));
+  $('#s-ac').onclick = () => safe(async () => {
+    const n = (prompt('New customer name (as it should appear in Xero):', $('#s-fc').value.trim()) || '').trim(); if (!n) return;
+    const dup = customers.find(c => c.name.toLowerCase() === n.toLowerCase()); if (dup) throw new Error(`"${dup.name}" already exists`);
+    await newCustomer(n); setupScreen();
+  });
 }
 
 /* ================= ADMIN: staff ================= */
