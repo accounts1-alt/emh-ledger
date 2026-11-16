@@ -601,9 +601,20 @@ function openDone(o) {
   m.querySelector('[data-re]').onclick = () => safe(async () => { await q(sb.rpc('ord_save', { p: { id: o.id, action: 'unfulfil' } })); close(); P.tab = 'todo'; procScreen(); });
 }
 
+/* ================= XERO ================= */
+let XERO = { connected: false };
+async function xeroCall(body) {
+  const { data, error } = await sb.functions.invoke('xero', { body });
+  if (error) { let m = error.message; try { m = (await error.context.json()).error || m; } catch {} throw new Error(m); }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+async function xeroStatus() { try { XERO = await xeroCall({ action: 'status' }); } catch { XERO = { connected: false }; } return XERO; }
+
 /* ================= INVOICING ================= */
 const I = { tab: 'todo', open: null };
 async function invScreen() {
+  await xeroStatus();
   $('#view').innerHTML = `<div class="pills">
       <button data-t="todo" class="${I.tab === 'todo' ? 'on' : ''}">To invoice</button>
       <button data-t="done" class="${I.tab === 'done' ? 'on' : ''}">Invoiced</button>
@@ -647,11 +658,13 @@ async function invScreen() {
       <div class="total" data-tot>Total: ${money(tot(o))}</div>
       <div class="actions" style="justify-content:flex-end">${edit ? `
         <button class="btn" data-sp>Save prices</button>
+        ${XERO.connected ? `<button class="link" data-manual>mark invoiced without Xero…</button>
+        <button class="big blue" data-xs>Send to Xero</button>` : `
         <input placeholder="Xero invoice no. (optional)" style="width:230px" data-inv>
-        <button class="big blue" data-mi>Mark invoiced</button>` : `<button class="btn" data-un>Undo invoiced</button>`}</div>`;
+        <button class="big blue" data-mi>Mark invoiced</button>`}` : `${o.xero_invoice_id ? '<span class="muted">Sent to Xero as a draft</span>' : ''}<button class="btn" data-un>Undo invoiced</button>`}</div>`;
     if (!edit) {
       el.querySelector('[data-un]').onclick = () => safe(async () => {
-        if (!confirm('Undo invoiced for #' + o.id + '? (Fix the invoice in Xero too if needed.)')) return;
+        if (!confirm('Undo invoiced for #' + o.id + '?' + (o.xero_invoice_id ? '\n\nDelete the draft invoice ' + (o.invoice_number || '') + ' in Xero too, or you will get a duplicate when you send it again.' : ' (Fix the invoice in Xero too if needed.)'))) return;
         await q(sb.rpc('ord_save', { p: { id: o.id, action: 'uninvoice' } })); toast('Moved back to To invoice'); I.open = null; invScreen();
       });
       return;
@@ -662,17 +675,29 @@ async function invScreen() {
       el.querySelector('[data-tot]').textContent = 'Total: ' + money(tot(o));
       row.querySelector(`[data-rt="${o.id}"]`).innerHTML = money(tot(o)) + (missing(o) ? ' <span class="tag">prices?</span>' : '');
     });
-    const send = action => safe(async () => {
-      for (const l of o.lines) {
+    const check = all => { for (const l of o.lines) {
         if (l.price !== '' && !isNum(l.price)) throw new Error(`"${l.price}" is not a price (${item(l.item_id)?.name})`);
-        if (action === 'invoice' && !isNum(l.price)) throw new Error(`Enter a price for ${item(l.item_id)?.name}`);
-      }
-      await q(sb.rpc('ord_save', { p: { id: o.id, action, invoice_number: el.querySelector('[data-inv]').value, lines: o.lines.map(l => ({ id: l.id, price: l.price })) } }));
+        if (all && !isNum(l.price)) throw new Error(`Enter a price for ${item(l.item_id)?.name}`);
+      } };
+    const savePrices = () => q(sb.rpc('ord_save', { p: { id: o.id, action: 'prices', lines: o.lines.map(l => ({ id: l.id, price: l.price })) } }));
+    const send = (action, invNo) => safe(async () => {
+      check(action === 'invoice');
+      await q(sb.rpc('ord_save', { p: { id: o.id, action, invoice_number: invNo ?? el.querySelector('[data-inv]')?.value ?? '', lines: o.lines.map(l => ({ id: l.id, price: l.price })) } }));
       toast(action === 'invoice' ? `#${o.id} marked invoiced` : 'Prices saved');
       if (action === 'invoice') { I.open = null; invScreen(); }
     });
     el.querySelector('[data-sp]').onclick = () => send('prices');
-    el.querySelector('[data-mi]').onclick = () => send('invoice');
+    el.querySelector('[data-mi]')?.addEventListener('click', () => send('invoice'));
+    el.querySelector('[data-manual]')?.addEventListener('click', () => { const n = prompt('Xero invoice number (optional):', ''); if (n !== null) send('invoice', n); });
+    el.querySelector('[data-xs]')?.addEventListener('click', e => safe(async () => {
+      check(true);
+      const b = e.target; b.disabled = true; b.textContent = 'Sending…';
+      try {
+        await savePrices();
+        const r = await xeroCall({ action: 'send', order_id: o.id });
+        toast(`✓ Sent to Xero as draft ${r.invoice_number}`); I.open = null; invScreen();
+      } finally { b.disabled = false; b.textContent = 'Send to Xero'; }
+    }));
     el.querySelector('input.price')?.focus();
   });
 }
@@ -707,7 +732,12 @@ async function setupScreen() {
   await loadLists();
   const list = (rows, kind) => rows.map(r => `<tr style="${r.active ? '' : 'color:#999'}" data-name="${esc(r.name.toLowerCase())}"><td>${esc(r.name)}${r.active ? '' : ' <span class="tag">hidden</span>'}</td>
     <td class="num"><button class="link" data-rn="${kind}:${r.id}">Rename</button><button class="link" data-hd="${kind}:${r.id}">${r.active ? 'Hide' : 'Show'}</button></td></tr>`).join('');
-  $('#view').innerHTML = `<div class="card"><h2>Tray weight</h2>
+  await xeroStatus();
+  $('#view').innerHTML = `<div class="card"><h2>Xero</h2>
+    ${XERO.connected ? `<p>✅ Connected to <b>${esc(XERO.tenant_name)}</b>${XERO.connected_by ? ` by ${esc(uname(XERO.connected_by))}` : ''}. Invoicing has a <b>Send to Xero</b> button that creates a <b>draft</b> invoice.</p>
+      <div class="actions"><button class="btn" id="x-con">Reconnect</button><button class="link" id="x-dis">Disconnect</button></div>`
+    : `<p>Not connected. Click below and approve in Xero – you’ll come straight back here.</p><div class="actions"><button class="big blue" id="x-con">Connect Xero</button></div>`}</div>
+    <div class="card"><h2>Tray weight</h2>
     <div class="row" style="align-items:center"><div style="flex:none"><input id="s-tray" inputmode="decimal" style="width:120px;text-align:right" value="${TRAY}"></div><div style="flex:none">kg per tray</div>
     <div style="flex:none"><button class="btn blue" id="s-tsave">Save</button></div>
     <div class="muted">Processing enters how many trays; this weight × trays is taken off the weight. Changing it only affects weights entered from now on.</div></div></div>
@@ -716,6 +746,8 @@ async function setupScreen() {
       <table style="margin-top:8px"><tbody id="s-tc">${list(customers, 'c')}</tbody></table></div>
     <div class="card"><h2>Items</h2><div class="row"><input id="s-fi" placeholder="Search, or type a new name and press Add"><button class="btn blue" style="flex:none" id="s-ai">+ Add</button></div>
       <table style="margin-top:8px"><tbody id="s-ti">${list(items, 'i')}</tbody></table></div></div>`;
+  $('#x-con').onclick = () => safe(async () => { const r = await xeroCall({ action: 'auth_url' }); location.href = r.url; });
+  if ($('#x-dis')) $('#x-dis').onclick = () => safe(async () => { if (!confirm('Disconnect Xero?')) return; await xeroCall({ action: 'disconnect' }); setupScreen(); });
   $('#s-tsave').onclick = () => safe(async () => {
     const v = $('#s-tray').value.trim(); if (!isNum(v) || Number(v) < 0) throw new Error('Enter the tray weight in kg, e.g. 1.65');
     await q(sb.from('ord_settings').update({ value: String(Number(v)) }).eq('key', 'tray_kg')); TRAY = Number(v); toast('Tray weight saved');
