@@ -8,73 +8,86 @@
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; font-size: 17px; color: #1b1b1b; background: #f4f4f1; }
-  header { background: #7a1f1f; color: #fff; padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  header h1 { font-size: 20px; margin: 0 12px 0 0; }
+  header { background: #7a1f1f; color: #fff; padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  header h1 { font-size: 20px; margin: 0 10px 0 0; }
   header .who { margin-left: auto; font-size: 14px; opacity: .9; }
   header .who a { color: #fff; margin-left: 10px; }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; }
   nav button { background: transparent; color: #fff; border: 2px solid rgba(255,255,255,.5); border-radius: 8px; padding: 8px 14px; font-size: 16px; cursor: pointer; }
-  nav button.on { background: #fff; color: #7a1f1f; border-color: #fff; font-weight: 600; }
-  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
-  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  nav button.on { background: #fff; color: #7a1f1f; border-color: #fff; font-weight: 700; }
+  main { max-width: 1100px; margin: 0 auto; padding: 14px; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
   h2 { margin: 0 0 12px; font-size: 22px; }
   label { display: block; font-weight: 600; margin: 10px 0 4px; }
-  input, select, textarea { font: inherit; padding: 9px 10px; border: 1px solid #bbb; border-radius: 8px; background: #fff; width: 100%; }
-  textarea { min-height: 60px; }
+  input, select, textarea { font: inherit; padding: 10px; border: 1px solid #bbb; border-radius: 8px; background: #fff; width: 100%; }
+  textarea { min-height: 56px; }
   .row { display: flex; gap: 12px; flex-wrap: wrap; }
-  .row > * { flex: 1 1 220px; }
-  button.big, button.btn { font: inherit; border: 0; border-radius: 8px; padding: 11px 18px; cursor: pointer; font-weight: 600; }
-  button.big { background: #1f7a3a; color: #fff; font-size: 18px; padding: 13px 26px; }
-  button.btn { background: #e7e7e2; color: #222; }
-  button.blue { background: #1f4f7a; color: #fff; }
-  button.red { background: #b3261e; color: #fff; }
-  button.link { background: none; border: 0; color: #1f4f7a; text-decoration: underline; cursor: pointer; font: inherit; padding: 4px; }
+  .row > * { flex: 1 1 200px; }
+  button { font: inherit; cursor: pointer; }
+  .big { border: 0; border-radius: 10px; background: #1f7a3a; color: #fff; font-size: 19px; font-weight: 700; padding: 14px 28px; }
+  .btn { border: 0; border-radius: 8px; background: #e7e7e2; color: #222; font-weight: 600; padding: 11px 18px; }
+  .blue { background: #1f4f7a; color: #fff; }
+  .red { background: #b3261e; color: #fff; }
+  .link { background: none; border: 0; color: #1f4f7a; text-decoration: underline; padding: 4px 6px; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid #e5e5e0; vertical-align: middle; }
   th { font-size: 14px; color: #555; background: #fafaf7; }
-  td.num, th.num { text-align: right; }
+  .num { text-align: right; }
   tr.click { cursor: pointer; } tr.click:hover { background: #f6f3e8; }
-  tr.removed td { text-decoration: line-through; color: #999; }
-  tr.removed td.keep { text-decoration: none; }
-  .badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 14px; font-weight: 600; }
-  .s-new { background: #fde9b8; color: #6b4b00; }
-  .s-fulfilled { background: #cfe8d6; color: #14532d; }
-  .s-invoiced { background: #d6e2f0; color: #1f3d66; }
-  .tag { font-size: 12px; background: #fde9b8; border-radius: 4px; padding: 1px 6px; margin-left: 6px; text-decoration: none; display: inline-block; }
-  .last { display: inline-block; margin-top: 4px; font-size: 13px; background: #eef4ec; border: 1px solid #b9d4b4; border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 14px; font-weight: 700; white-space: nowrap; }
+  .s-new { background: #fde9b8; color: #6b4b00; } .s-fulfilled { background: #cfe8d6; color: #14532d; } .s-invoiced { background: #d6e2f0; color: #1f3d66; }
+  .tag { font-size: 12px; background: #fde9b8; border-radius: 4px; padding: 1px 6px; margin-left: 6px; font-weight: 600; }
   .muted { color: #777; font-size: 14px; }
-  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
-  .filters button { border: 1px solid #bbb; background: #fff; border-radius: 99px; padding: 7px 14px; font: inherit; cursor: pointer; }
-  .filters button.on { background: #222; color: #fff; border-color: #222; }
-  .filters input { width: auto; }
-  .filters button.link { border: 0; background: none; padding: 4px 6px; }
-  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; align-items: center; }
-  .msg { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #222; color: #fff; padding: 12px 20px; border-radius: 10px; z-index: 9; max-width: 90%; }
+  .msg { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #222; color: #fff; padding: 13px 22px; border-radius: 10px; z-index: 99; max-width: 92%; font-size: 17px; }
   .msg.err { background: #b3261e; }
-  .total { font-size: 20px; font-weight: 700; text-align: right; margin-top: 10px; }
-  .unit { color: #555; font-size: 14px; white-space: nowrap; }
-  td input, td select { padding: 7px 8px; }
-  td input.n { width: 100px; text-align: right; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .pills button { border: 2px solid #bbb; background: #fff; border-radius: 99px; padding: 8px 16px; font-weight: 600; }
+  .pills button.on { background: #222; color: #fff; border-color: #222; }
+  .pills input { width: auto; }
+  /* kg / units toggle */
+  .tog { display: inline-flex; border: 2px solid #999; border-radius: 9px; overflow: hidden; flex: none; }
+  .tog button { border: 0; background: #fff; padding: 9px 14px; font-weight: 700; color: #444; min-width: 70px; }
+  .tog button + button { border-left: 2px solid #999; }
+  .tog button.on { background: #1f4f7a; color: #fff; }
+  .tog.need { border-color: #d08a00; }
+  /* type-to-search */
+  .combo { position: relative; }
+  .combo .opts { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; background: #fff; border: 1px solid #999; border-radius: 8px; max-height: 300px; overflow: auto; box-shadow: 0 6px 18px rgba(0,0,0,.15); }
+  .combo .opt { padding: 11px 12px; cursor: pointer; border-bottom: 1px solid #eee; }
+  .combo .opt.hi, .combo .opt:hover { background: #eef3f8; }
+  .combo .opt.add { color: #1f7a3a; font-weight: 700; }
+  /* order entry lines */
+  .eline { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid #eee; flex-wrap: wrap; }
+  .eline .c { flex: 1 1 260px; }
+  .eline input.q { width: 110px; text-align: right; flex: none; }
+  /* processing cards */
+  .pcard { background: #fff; border-radius: 14px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.12); border-left: 8px solid #e0a800; }
+  .pcard.late { border-left-color: #b3261e; }
+  .pcard .ph { padding: 14px 16px 6px; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; }
+  .pcard .cust { font-size: 26px; font-weight: 800; }
+  .pcard .note { margin: 4px 16px 8px; background: #fff6cf; border-radius: 8px; padding: 8px 12px; font-weight: 600; }
+  .pline { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid #eee; flex-wrap: wrap; }
+  .pline .nm { flex: 1 1 220px; font-size: 21px; font-weight: 700; }
+  .pline .ord { font-size: 16px; color: #555; font-weight: 400; display: block; }
+  .pline input.sent { width: 130px; font-size: 24px; text-align: right; padding: 10px; font-weight: 700; flex: none; }
+  .pline.off { background: #f3f3f3; } .pline.off .nm { text-decoration: line-through; color: #999; }
+  .pfoot { padding: 12px 16px 16px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; border-top: 1px solid #eee; }
+  .pfoot .add { flex: 1 1 240px; }
+  .notsent { border: 2px solid #ccc; background: #fff; border-radius: 9px; padding: 9px 12px; font-weight: 600; color: #555; }
+  /* invoicing */
+  .last { display: inline-block; font-size: 13px; background: #eef4ec; border: 1px solid #b9d4b4; border-radius: 6px; padding: 2px 8px; margin-top: 3px; }
+  input.price { width: 110px; text-align: right; }
+  .total { font-size: 21px; font-weight: 800; text-align: right; margin-top: 8px; }
   #login { max-width: 380px; margin: 60px auto; }
   .hide { display: none !important; }
-  @media (max-width: 700px) {
-    .lines thead { display: none; }
-    .lines tr { display: block; border-bottom: 2px solid #ddd; padding: 6px 0; }
-    .lines td { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 0; padding: 5px 4px; }
-    .lines td::before { content: attr(data-l); font-weight: 600; font-size: 14px; color: #555; }
-    .lines td.num { text-align: left; }
-  }
 </style>
 </head>
 <body>
 <header class="hide" id="top">
   <h1>Em H Orders</h1>
-  <nav>
-    <button data-tab="new">+ New order</button>
-    <button data-tab="list">Orders</button>
-    <button data-tab="setup">Customers &amp; items</button>
-    <button data-tab="staff">Staff</button>
-  </nav>
-  <div class="who"><span id="me"></span><a href="#" id="signout">Sign out</a></div>
+  <nav id="nav"></nav>
+  <div class="who"><span id="me"></span><a href="#" id="pw">Password</a><a href="#" id="signout">Sign out</a></div>
 </header>
 
 <main>
@@ -83,7 +96,7 @@
     <label>Email</label><input id="li-email" type="email" autocomplete="username">
     <label>Password</label><input id="li-pass" type="password" autocomplete="current-password">
     <div class="actions"><button class="big" id="li-go">Sign in</button></div>
-    <p class="muted">No login yet? Ask the office to add you under Staff.</p>
+    <p class="muted">No login yet? Ask an admin to add you under Staff.</p>
   </div>
   <div id="view"></div>
 </main>
@@ -92,360 +105,485 @@
 const sb = supabase.createClient('https://bcdibbhmiwccvvmryqze.supabase.co', 'sb_publishable_YAtej3hTvSDPHPLQVYk-Ig_K4rxgiYr',
   { auth: { storageKey: 'emh-orders-auth', persistSession: true, autoRefreshToken: true } });
 
+/* ================= basics ================= */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const money = n => n == null || isNaN(n) ? '—' : '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const qtyFmt = n => n == null || n === '' ? '' : String(Number(n));
-const UNITS = { each: 'each', kg: 'kg', box: 'box' };
+const money = n => n == null || n === '' || isNaN(n) ? '—' : '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const qf = n => n == null || n === '' ? '' : String(Number(n));
+const U = u => u === 'kg' ? 'kg' : u === 'units' ? 'units' : '';
+const per = u => u === 'kg' ? 'kg' : 'unit';
 const ukDate = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
-const isoDay = (offset = 0) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.toLocaleDateString('en-CA'); };
+const isoDay = (off = 0) => { const d = new Date(); d.setDate(d.getDate() + off); return d.toLocaleDateString('en-CA'); };
+const isNum = v => v !== '' && v != null && !isNaN(Number(v));
+const ST = { new: 'To prepare', fulfilled: 'Ready to invoice', invoiced: 'Invoiced' };
 
-let customers = [], items = [], me = '';
-const S = { tab: 'list', filter: 'open', date: '' };
+let customers = [], items = [], me = '', role = '';
+const cust = id => customers.find(c => c.id == id);
+const item = id => items.find(i => i.id == id);
 
 function toast(text, err) {
   document.querySelectorAll('.msg').forEach(m => m.remove());
   const el = document.createElement('div'); el.className = 'msg' + (err ? ' err' : ''); el.textContent = text;
-  document.body.appendChild(el); setTimeout(() => el.remove(), err ? 6000 : 2500);
+  document.body.appendChild(el); setTimeout(() => el.remove(), err ? 6000 : 2200);
 }
 async function q(p) {
   const { data, error } = await p;
-  if (error) { let m = error.message || String(error); if (/row-level security/i.test(m)) m = 'Your login is not set up for orders. Ask the office to add you.'; throw new Error(m); }
+  if (error) { let m = error.message || String(error); if (/row-level security/i.test(m)) m = 'Your login is not allowed to do that.'; throw new Error(m); }
   return data;
 }
-async function safe(fn) { try { await fn(); } catch (e) { toast(e.message, true); } }
-
+async function safe(fn) { try { return await fn(); } catch (e) { toast(e.message, true); } }
 async function loadLists() {
   [customers, items] = await Promise.all([
     q(sb.from('ord_customers').select('*').order('name')),
     q(sb.from('ord_items').select('*').order('name')),
   ]);
 }
-const cust = id => customers.find(c => c.id == id);
-const item = id => items.find(i => i.id == id);
-
-/* ---------- login ---------- */
-async function boot() {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) { $('#login').classList.remove('hide'); $('#top').classList.add('hide'); $('#view').innerHTML = ''; return; }
-  me = session.user.email;
-  $('#login').classList.add('hide'); $('#top').classList.remove('hide'); $('#me').textContent = me;
-  await safe(async () => {
-    if (!(await q(sb.rpc('ord_ok')))) { $('#view').innerHTML = '<div class="card"><h2>Not set up yet</h2><p>Your login works, but it has not been added to the orders system. Ask the office to add you under Staff.</p></div>'; return; }
-    await loadLists(); go(location.hash.slice(1) || 'list');
-  });
-}
-$('#li-go').onclick = () => safe(async () => {
-  const { error } = await sb.auth.signInWithPassword({ email: $('#li-email').value.trim(), password: $('#li-pass').value });
-  if (error) throw new Error('Wrong email or password');
-  boot();
-});
-$('#li-pass').onkeydown = e => { if (e.key === 'Enter') $('#li-go').click(); };
-$('#signout').onclick = async e => { e.preventDefault(); await sb.auth.signOut(); location.hash = ''; boot(); };
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => go(b.dataset.tab));
-window.onhashchange = () => { const h = location.hash.slice(1); if (h && h !== S.cur) go(h); };
-
-function go(tab) {
-  S.cur = tab; if (location.hash.slice(1) !== tab) location.hash = tab;
-  const base = tab.split('/')[0];
-  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === base));
-  safe(async () => {
-    if (base === 'new') return orderScreen(null);
-    if (base === 'order') return orderScreen(Number(tab.split('/')[1]));
-    if (base === 'setup') return setupScreen();
-    if (base === 'staff') return staffScreen();
-    return listScreen();
-  });
+async function pricesFor(lineIds) {
+  const out = {};
+  if (role === 'processing') return out;
+  for (let i = 0; i < lineIds.length; i += 150) {
+    const rows = await q(sb.from('ord_line_prices').select('*').in('line_id', lineIds.slice(i, i + 150)));
+    rows.forEach(r => out[r.line_id] = r.price);
+  }
+  return out;
 }
 
-/* ---------- helpers for picking / adding ---------- */
-async function addCustomer() {
-  const name = (prompt('New customer name:') || '').trim(); if (!name) return null;
+/* ================= type-to-search box ================= */
+function combo(el, o) {
+  el.classList.add('combo');
+  el.innerHTML = `<input autocomplete="off" placeholder="${esc(o.placeholder || 'Type to search…')}"><div class="opts hide"></div>`;
+  const inp = el.querySelector('input'), box = el.querySelector('.opts');
+  const nameOf = id => (o.list().find(r => r.id == id) || {}).name || '';
+  inp.value = nameOf(o.value);
+  let shown = [], hi = 0;
+  function draw() {
+    const t = inp.value.trim().toLowerCase(), words = t.split(/\s+/).filter(Boolean);
+    shown = o.list().filter(r => r.active !== false && words.every(w => r.name.toLowerCase().includes(w))).slice(0, 40).map(r => ({ id: r.id, label: r.name }));
+    if (o.onAdd && t && !o.list().some(r => r.name.toLowerCase() === t)) shown.push({ add: inp.value.trim(), label: `+ Add “${inp.value.trim()}” as a new ${o.addWord}` });
+    hi = Math.min(hi, Math.max(0, shown.length - 1));
+    box.innerHTML = shown.length ? shown.map((s, i) => `<div class="opt ${s.add != null ? 'add' : ''} ${i === hi ? 'hi' : ''}" data-i="${i}">${esc(s.label)}</div>`).join('') : '<div class="opt muted">Nothing found</div>';
+    box.classList.remove('hide');
+  }
+  async function pick(s) {
+    if (!s) return;
+    box.classList.add('hide');
+    if (s.add != null) { const row = await safe(() => o.onAdd(s.add)); if (!row) return; o.value = row.id; inp.value = o.clear ? '' : row.name; o.onPick(row.id); }
+    else { o.value = s.id; inp.value = o.clear ? '' : s.label; o.onPick(s.id); }
+  }
+  inp.onfocus = () => { inp.select(); hi = 0; draw(); };
+  inp.oninput = () => { hi = 0; draw(); };
+  inp.onkeydown = e => {
+    if (e.key === 'ArrowDown') { hi = Math.min(hi + 1, shown.length - 1); draw(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { hi = Math.max(hi - 1, 0); draw(); e.preventDefault(); }
+    else if (e.key === 'Enter') { e.preventDefault(); const s = shown[hi]; inp.blur(); pick(s); }
+    else if (e.key === 'Escape') inp.blur();
+  };
+  inp.onblur = () => setTimeout(() => { box.classList.add('hide'); inp.value = o.clear ? '' : nameOf(o.value); }, 180);
+  box.onmousedown = e => { const d = e.target.closest('[data-i]'); if (d) { e.preventDefault(); const s = shown[+d.dataset.i]; inp.blur(); pick(s); } };
+  return { focus: () => inp.focus() };
+}
+async function newCustomer(name) {
   const row = await q(sb.from('ord_customers').insert({ name }).select().single());
   customers.push(row); customers.sort((a, b) => a.name.localeCompare(b.name)); toast('Customer added'); return row;
 }
-async function addItem() {
-  const name = (prompt('New item name:') || '').trim(); if (!name) return null;
-  const ou = (prompt('How is it ORDERED? Type: each, kg or box', 'kg') || 'kg').trim().toLowerCase();
-  const cu = (prompt('How is it CHARGED? Type: each, kg or box', ou === 'each' ? 'kg' : ou) || 'kg').trim().toLowerCase();
-  if (!UNITS[ou] || !UNITS[cu]) { toast('Units must be each, kg or box', true); return null; }
-  const row = await q(sb.from('ord_items').insert({ name, order_unit: ou, charge_unit: cu }).select().single());
+async function newItem(name) {
+  const row = await q(sb.from('ord_items').insert({ name }).select().single());
   items.push(row); items.sort((a, b) => a.name.localeCompare(b.name)); toast('Item added'); return row;
 }
-function custOptions(sel) {
-  return '<option value="">— choose customer —</option>' +
-    customers.filter(c => c.active || c.id == sel).map(c => `<option value="${c.id}" ${c.id == sel ? 'selected' : ''}>${esc(c.name)}</option>`).join('') +
-    '<option value="__new">+ Add new customer…</option>';
+const tog = (val, attrs) => `<span class="tog ${val ? '' : 'need'}">${['kg', 'units'].map(u => `<button type="button" ${attrs} data-u="${u}" class="${val === u ? 'on' : ''}">${u === 'kg' ? 'Kilos' : 'Units'}</button>`).join('')}</span>`;
+
+/* ================= login & navigation ================= */
+const TABS = {
+  admin: [['new', '+ New order'], ['proc', 'Processing'], ['inv', 'Invoicing'], ['all', 'All orders'], ['setup', 'Customers & items'], ['staff', 'Staff']],
+  processing: [['proc', 'Orders to prepare']],
+  invoicing: [['inv', 'Invoicing']],
+};
+async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { $('#login').classList.remove('hide'); $('#top').classList.add('hide'); $('#view').innerHTML = ''; return; }
+  me = session.user.email; $('#login').classList.add('hide'); $('#top').classList.remove('hide'); $('#me').textContent = me;
+  await safe(async () => {
+    role = await q(sb.rpc('ord_role'));
+    if (!role) { $('#nav').innerHTML = ''; $('#view').innerHTML = '<div class="card"><h2>Not set up yet</h2><p>Your login works, but an admin has not added you to the orders system yet.</p></div>'; return; }
+    $('#nav').innerHTML = TABS[role].map(([k, t]) => `<button data-tab="${k}">${t}</button>`).join('');
+    document.querySelectorAll('#nav button').forEach(b => b.onclick = () => go(b.dataset.tab));
+    await loadLists();
+    const want = location.hash.slice(1);
+    go(want && allowed(want) ? want : TABS[role][0][0]);
+  });
 }
-function itemOptions(sel) {
-  return '<option value="">— choose item —</option>' +
-    items.filter(i => i.active || i.id == sel).map(i => `<option value="${i.id}" ${i.id == sel ? 'selected' : ''}>${esc(i.name)}</option>`).join('') +
-    '<option value="__new">+ Add new item…</option>';
+const allowed = t => TABS[role]?.some(([k]) => k === t.split('/')[0]) || (role === 'admin' && t.startsWith('order/'));
+$('#li-go').onclick = () => safe(async () => {
+  const { error } = await sb.auth.signInWithPassword({ email: $('#li-email').value.trim(), password: $('#li-pass').value });
+  if (error) throw new Error('Wrong email or password'); boot();
+});
+$('#li-pass').onkeydown = e => { if (e.key === 'Enter') $('#li-go').click(); };
+$('#signout').onclick = async e => { e.preventDefault(); await sb.auth.signOut(); location.hash = ''; role = ''; boot(); };
+$('#pw').onclick = e => { e.preventDefault(); safe(async () => {
+  const pw = prompt('New password (at least 6 characters):'); if (pw == null) return;
+  if (pw.length < 6) throw new Error('At least 6 characters');
+  const { error } = await sb.auth.updateUser({ password: pw }); if (error) throw error; toast('Password changed');
+}); };
+let cur = '';
+window.onhashchange = () => { const h = location.hash.slice(1); if (h && h !== cur && allowed(h)) go(h); };
+function go(tab) {
+  if (!allowed(tab)) return;
+  cur = tab; if (location.hash.slice(1) !== tab) location.hash = tab;
+  const base = tab.split('/')[0];
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === base));
+  clearInterval(P.timer);
+  safe(async () => {
+    if (base === 'new') return orderScreen(null);
+    if (base === 'order') return orderScreen(Number(tab.split('/')[1]));
+    if (base === 'proc') return procScreen();
+    if (base === 'inv') return invScreen();
+    if (base === 'all') return allScreen();
+    if (base === 'setup') return setupScreen();
+    if (base === 'staff') return staffScreen();
+  });
 }
 
-/* ---------- order screen (new, edit, fulfil, invoice) ---------- */
-let O = null; // working copy
-let lastPrices = {};
-
-async function loadLastPrices(customerId) {
-  lastPrices = {};
-  if (!customerId) return;
-  const rows = await q(sb.from('ord_last_prices').select('*').eq('customer_id', customerId));
-  rows.forEach(r => lastPrices[r.item_id] = r);
-}
-const unitsMatch = it => it && it.order_unit === it.charge_unit;
-function lineCharge(l) {
-  const it = item(l.item_id);
-  if (l.qty_charged !== '' && l.qty_charged != null) return Number(l.qty_charged);
-  if (unitsMatch(it) && l.qty_ordered !== '' && l.qty_ordered != null) return Number(l.qty_ordered);
-  return null;
-}
-function lineTotal(l) {
-  const c = lineCharge(l); if (c == null || l.price === '' || l.price == null || l.removed) return null;
-  return Math.round(c * Number(l.price) * 100) / 100;
-}
-
+/* ================= ADMIN: enter / edit an order ================= */
+let O = null;
 async function orderScreen(id) {
   if (id) {
-    const o = await q(sb.from('ord_orders').select('*').eq('id', id).single());
-    const lines = await q(sb.from('ord_lines').select('*').eq('order_id', id).order('position'));
-    O = { ...o, lines: lines.map(l => ({ ...l, saved: true })) };
+    const o = await q(sb.from('ord_orders').select('*, ord_lines(*)').eq('id', id).single());
+    o.lines = o.ord_lines.sort((a, b) => a.position - b.position); delete o.ord_lines;
+    o.prices = await pricesFor(o.lines.map(l => l.id));
+    O = o;
   } else {
-    O = { id: null, customer_id: '', delivery_date: isoDay(1), notes: '', status: 'new', lines: [blankLine(false)] };
+    O = { id: null, customer_id: null, delivery_date: isoDay(1), prep_date: isoDay(0), notes: '', status: 'new', lines: [{ item_id: null, qty_ordered: '', unit: '' }], prices: {} };
   }
-  await loadLastPrices(O.customer_id);
   drawOrder();
 }
-function blankLine(byOps) { return { item_id: '', qty_ordered: '', qty_charged: '', price: '', removed: false, added_by_ops: byOps, saved: false }; }
-
 function drawOrder() {
-  const o = O, locked = o.status === 'invoiced', isNew = !o.id;
-  const showActual = !isNew; // weights are entered once the order exists
-  let total = 0, missing = false;
-  const rows = o.lines.map((l, ix) => {
-    const it = item(l.item_id), t = lineTotal(l);
-    if (!l.removed) { if (t == null) missing = true; else total += t; }
-    const lp = lastPrices[l.item_id];
-    const lastBox = lp && !locked ? `<div><span class="last" data-fill="${ix}" title="Click to use this price">Last invoiced: ${money(lp.price)}/${it ? it.charge_unit : ''} · ${ukDate(lp.delivery_date)}</span></div>` : '';
-    const dis = locked || l.removed ? 'disabled' : '';
-    return `<tr class="${l.removed ? 'removed' : ''}">
-      <td data-l="Item">${locked ? esc(it?.name) : `<select data-ix="${ix}" data-f="item_id" ${dis}>${itemOptions(l.item_id)}</select>`}
-        ${l.added_by_ops ? '<span class="tag">added</span>' : ''}${l.removed ? '<span class="tag">removed</span>' : ''}</td>
-      <td data-l="Ordered" class="num">${l.added_by_ops ? '<span class="muted">—</span>' :
-        (locked || !isNew && o.status !== 'new' ? qtyFmt(l.qty_ordered) : `<input class="n" inputmode="decimal" data-ix="${ix}" data-f="qty_ordered" value="${esc(qtyFmt(l.qty_ordered))}" ${dis}>`)}
-        <span class="unit">${it ? it.order_unit : ''}</span></td>
-      ${showActual ? `<td data-l="Actual sent" class="num">${locked ? qtyFmt(l.qty_charged) : `<input class="n" inputmode="decimal" data-ix="${ix}" data-f="qty_charged" placeholder="${unitsMatch(it) && l.qty_ordered !== '' && l.qty_ordered != null ? qtyFmt(l.qty_ordered) : 'weigh'}" value="${esc(qtyFmt(l.qty_charged))}" ${dis}>`}
-        <span class="unit">${it ? it.charge_unit : ''}</span></td>` : ''}
-      <td data-l="Price" class="num">${locked ? money(l.price) : `£ <input class="n" inputmode="decimal" data-ix="${ix}" data-f="price" value="${esc(l.price ?? '')}" ${dis}>`}
-        <span class="unit">${it ? '/' + it.charge_unit : ''}</span>${lastBox}</td>
-      <td data-l="Total" class="num" id="lt-${ix}">${l.removed ? '' : money(t)}</td>
-      <td class="keep">${locked ? '' : (l.removed ? `<button class="link" data-undo="${ix}">Put back</button>` : `<button class="link" data-del="${ix}">Remove</button>`)}</td>
-    </tr>`;
-  }).join('');
-
-  const statusTxt = { new: 'New', fulfilled: 'Fulfilled', invoiced: 'Invoiced' }[o.status];
-  $('#view').innerHTML = `<div class="card">
-    <h2>${isNew ? 'New order' : `Order #${o.id} <span class="badge s-${o.status}">${statusTxt}</span>`}</h2>
-    ${!isNew ? `<p class="muted">Taken by ${esc(o.created_by)}${o.fulfilled_by ? ` · fulfilled by ${esc(o.fulfilled_by)}` : ''}${o.status === 'invoiced' ? ` · invoiced by ${esc(o.invoiced_by)}${o.invoice_number ? ' — invoice ' + esc(o.invoice_number) : ''}` : ''}</p>` : ''}
+  const o = O, locked = o.status === 'invoiced';
+  $('#view').innerHTML = `<div class="card" id="o-card">
+    <h2>${o.id ? `Order #${o.id} <span class="badge s-${o.status}">${ST[o.status]}</span>` : 'New order'}</h2>
+    ${o.id ? `<p class="muted">Entered by ${esc(o.created_by)}${o.fulfilled_by ? ` · prepared by ${esc(o.fulfilled_by)}` : ''}${o.invoiced_by ? ` · invoiced by ${esc(o.invoiced_by)}${o.invoice_number ? ' (' + esc(o.invoice_number) + ')' : ''}` : ''}</p>` : ''}
+    ${locked ? '<p><b>This order is invoiced, so it can’t be changed.</b> Undo invoiced on the Invoicing screen first.</p>' : ''}
     <div class="row">
-      <div><label>Customer</label>${locked ? `<div>${esc(cust(o.customer_id)?.name)}</div>` : `<select id="o-cust">${custOptions(o.customer_id)}</select>`}</div>
-      <div><label>Delivery date</label>${locked ? `<div>${ukDate(o.delivery_date)}</div>` : `<input id="o-date" type="date" value="${esc(o.delivery_date)}">`}</div>
+      <div style="flex:2 1 300px"><label>Customer</label><div id="c-cust"></div></div>
+      <div><label>Prepare on</label><input type="date" id="o-prep" value="${esc(o.prep_date)}"></div>
+      <div><label>Delivery date</label><input type="date" id="o-del" value="${esc(o.delivery_date)}"></div>
     </div>
     <label>Items</label>
-    <table class="lines"><thead><tr><th>Item</th><th class="num">Ordered</th>${showActual ? '<th class="num">Actual sent</th>' : ''}<th class="num">Price</th><th class="num">Total</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table>
-    ${locked ? '' : `<div class="actions"><button class="btn" id="o-addline">+ Add item</button></div>`}
-    <div class="total" id="o-total">${totalHtml(total, missing)}</div>
-    <label>Notes</label>${locked ? `<div>${esc(o.notes) || '<span class="muted">none</span>'}</div>` : `<textarea id="o-notes">${esc(o.notes)}</textarea>`}
-    <div class="actions">${actionButtons(o)}</div>
-  </div>`;
-
-  // wire up
-  const cs = $('#o-cust');
-  if (cs) cs.onchange = () => safe(async () => {
-    if (cs.value === '__new') { const c = await addCustomer(); O.customer_id = c ? c.id : O.customer_id; }
-    else O.customer_id = cs.value;
-    await loadLastPrices(O.customer_id); autofillPrices(); drawOrder();
+    <div id="o-lines"></div>
+    <div class="actions"><button class="btn" id="o-add">+ Add item</button></div>
+    <label>Notes for processing</label><textarea id="o-notes">${esc(o.notes)}</textarea>
+    <div class="actions">
+      <button class="big" id="o-save">${o.id ? 'Save changes' : 'Save order'}</button>
+      ${o.id ? '<button class="btn" id="o-back">Back</button>' : ''}
+      ${o.id && o.status === 'new' ? '<button class="btn red" id="o-del-btn" style="margin-left:auto">Delete order</button>' : ''}
+    </div>
+  </div>
+  ${o.id && o.status !== 'new' ? sentSummary(o) : ''}`;
+  combo($('#c-cust'), { list: () => customers, value: o.customer_id, placeholder: 'Type customer name…', addWord: 'customer', onAdd: newCustomer,
+    onPick: id => { o.customer_id = id; const f = document.querySelector('#o-lines .c input'); if (f && !O.lines[0].item_id) f.focus(); } });
+  drawLines();
+  $('#o-prep').oninput = e => o.prep_date = e.target.value;
+  $('#o-del').oninput = e => { o.delivery_date = e.target.value; if (o.prep_date > o.delivery_date) { o.prep_date = o.delivery_date; $('#o-prep').value = o.prep_date; } };
+  $('#o-notes').oninput = e => o.notes = e.target.value;
+  $('#o-add').onclick = () => { o.lines.push({ item_id: null, qty_ordered: '', unit: '' }); drawLines(true); };
+  $('#o-save').onclick = saveOrder;
+  if ($('#o-back')) $('#o-back').onclick = () => go('all');
+  if ($('#o-del-btn')) $('#o-del-btn').onclick = () => safe(async () => {
+    if (!confirm('Delete order #' + o.id + '?')) return;
+    await q(sb.from('ord_orders').delete().eq('id', o.id)); toast('Order deleted'); go('all');
   });
-  const ds = $('#o-date'); if (ds) ds.onchange = () => O.delivery_date = ds.value;
-  const ns = $('#o-notes'); if (ns) ns.oninput = () => O.notes = ns.value;
-  document.querySelectorAll('[data-ix]').forEach(el => {
-    const l = O.lines[el.dataset.ix], f = el.dataset.f;
-    if (el.tagName === 'SELECT') el.onchange = () => safe(async () => {
-      if (el.value === '__new') { const it = await addItem(); l.item_id = it ? it.id : l.item_id; } else l.item_id = el.value;
-      const lp = lastPrices[l.item_id]; if (lp && (l.price === '' || l.price == null)) l.price = lp.price;
-      drawOrder();
+  if (locked) document.querySelectorAll('#o-card input, #o-card textarea, #o-card button:not(#o-back)').forEach(e => e.disabled = true);
+}
+function drawLines(focusLast) {
+  const box = $('#o-lines'); box.innerHTML = '';
+  const vis = O.lines.map((l, ix) => [l, ix]).filter(([l]) => !l.added_by_ops);
+  vis.forEach(([l, ix], k) => {
+    const row = document.createElement('div'); row.className = 'eline';
+    row.innerHTML = `<div class="c"></div>
+      <input class="q" inputmode="decimal" placeholder="Qty" value="${esc(qf(l.qty_ordered))}">
+      ${tog(l.unit, '')}
+      <button class="link">✕ remove</button>`;
+    box.appendChild(row);
+    const c = combo(row.querySelector('.c'), { list: () => items, value: l.item_id, placeholder: 'Type item name…', addWord: 'item', onAdd: newItem, onPick: id => { l.item_id = id; row.querySelector('.q').focus(); } });
+    row.querySelector('.q').oninput = e => l.qty_ordered = e.target.value.trim();
+    row.querySelectorAll('.tog button').forEach(b => b.onclick = () => {
+      l.unit = b.dataset.u; row.querySelectorAll('.tog button').forEach(x => x.classList.toggle('on', x === b)); row.querySelector('.tog').classList.remove('need');
     });
-    else el.oninput = () => { l[f] = el.value.trim(); updateTotals(); };
-  });
-  document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
-    const l = O.lines[b.dataset.del];
-    if (!l.saved) O.lines.splice(b.dataset.del, 1); else l.removed = true;
-    drawOrder();
-  });
-  document.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => { O.lines[b.dataset.undo].removed = false; drawOrder(); });
-  document.querySelectorAll('[data-fill]').forEach(b => b.onclick = () => { const l = O.lines[b.dataset.fill]; l.price = lastPrices[l.item_id].price; drawOrder(); });
-  const al = $('#o-addline'); if (al) al.onclick = () => { O.lines.push(blankLine(!!O.id)); drawOrder(); };
-  document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => saveOrder(b.dataset.act));
-  const del = $('#o-delete'); if (del) del.onclick = () => safe(async () => {
-    if (!confirm('Delete order #' + O.id + '? This cannot be undone.')) return;
-    await q(sb.from('ord_orders').delete().eq('id', O.id)); toast('Order deleted'); go('list');
+    row.querySelector('.link').onclick = () => { O.lines.splice(ix, 1); drawLines(); };
+    if (focusLast && k === vis.length - 1) c.focus();
   });
 }
-function totalHtml(total, missing) {
-  return `Total: ${money(total)}${missing ? ' <span class="muted">(some lines have no weight or price yet)</span>' : ''}`;
+function sentSummary(o) {
+  const showP = role !== 'processing';
+  const rows = o.lines.map(l => {
+    const p = o.prices[l.id];
+    return `<tr><td>${esc(item(l.item_id)?.name)}${l.added_by_ops ? '<span class="tag">added</span>' : ''}${l.removed ? '<span class="tag">not sent</span>' : ''}</td>
+      <td class="num">${l.added_by_ops ? '—' : qf(l.qty_ordered) + ' ' + U(l.unit)}</td>
+      <td class="num">${l.removed ? '—' : qf(l.qty_sent) + ' ' + U(l.sent_unit)}</td>
+      ${showP ? `<td class="num">${p != null ? money(p) + '/' + per(l.sent_unit) : '—'}</td>
+      <td class="num">${!l.removed && p != null && isNum(l.qty_sent) ? money(l.qty_sent * p) : ''}</td>` : ''}</tr>`;
+  }).join('');
+  return `<div class="card"><h2>What was sent</h2><table><thead><tr><th>Item</th><th class="num">Ordered</th><th class="num">Sent</th>${showP ? '<th class="num">Price</th><th class="num">Total</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
-function updateTotals() {
-  let total = 0, missing = false;
-  O.lines.forEach((l, ix) => {
-    const t = lineTotal(l), cell = document.getElementById('lt-' + ix);
-    if (!l.removed) { if (t == null) missing = true; else total += t; }
-    if (cell) cell.textContent = l.removed ? '' : money(t);
-  });
-  const el = document.getElementById('o-total'); if (el) el.innerHTML = totalHtml(total, missing);
-}
-function autofillPrices() {
-  O.lines.forEach(l => { const lp = lastPrices[l.item_id]; if (lp && (l.price === '' || l.price == null)) l.price = lp.price; });
-}
-function actionButtons(o) {
-  if (!o.id) return `<button class="big" data-act="save">Save order</button><button class="btn" onclick="go('list')">Cancel</button>`;
-  if (o.status === 'new') return `<button class="btn blue" data-act="save">Save changes</button>
-      <button class="big" data-act="fulfil">✓ Save &amp; mark fulfilled</button>
-      <button class="btn" onclick="go('list')">Back</button><button class="btn red" id="o-delete" style="margin-left:auto">Delete order</button>`;
-  if (o.status === 'fulfilled') return `<button class="btn blue" data-act="save">Save changes</button>
-      <button class="big" data-act="invoice">Mark invoiced</button>
-      <button class="btn" data-act="unfulfil">Undo fulfilled</button><button class="btn" onclick="go('list')">Back</button>`;
-  return `<button class="btn" data-act="uninvoice">Undo invoiced</button><button class="btn" onclick="go('list')">Back</button>`;
-}
-
-function saveOrder(action) {
+function saveOrder() {
   safe(async () => {
     const o = O;
-    if (action !== 'uninvoice') {
-      if (!o.customer_id || o.customer_id === '__new') throw new Error('Choose a customer');
-      o.lines = o.lines.filter(l => l.item_id && l.item_id !== '__new' || l.qty_ordered || l.qty_charged);
-      if (!o.lines.length) { o.lines.push(blankLine(!!o.id)); drawOrder(); throw new Error('Add at least one item'); }
-      for (const l of o.lines) {
-        if (!l.item_id || l.item_id === '__new') throw new Error('Choose the item on every line (or remove the empty line)');
-        if (!l.added_by_ops && !l.removed && (l.qty_ordered === '' || l.qty_ordered == null)) throw new Error(`Enter a quantity for ${item(l.item_id).name}`);
-        for (const f of ['qty_ordered', 'qty_charged', 'price']) if (l[f] !== '' && l[f] != null && isNaN(Number(l[f]))) throw new Error(`"${l[f]}" is not a number (${item(l.item_id).name})`);
-      }
-      if (action === 'fulfil') {
-        // fill actual = ordered where units match and nothing typed
-        o.lines.forEach(l => { const it = item(l.item_id); if (!l.removed && (l.qty_charged === '' || l.qty_charged == null) && unitsMatch(it) && !l.added_by_ops) l.qty_charged = l.qty_ordered; });
-        const need = o.lines.filter(l => !l.removed && (l.qty_charged === '' || l.qty_charged == null));
-        if (need.length) { drawOrder(); throw new Error('Enter the actual weight / qty for: ' + need.map(l => item(l.item_id).name).join(', ')); }
-      }
+    if (!o.customer_id) throw new Error('Choose a customer');
+    if (!o.prep_date || !o.delivery_date) throw new Error('Fill in both dates');
+    const lines = o.lines.filter(l => !l.added_by_ops && (l.item_id || isNum(l.qty_ordered)));
+    if (!lines.length) throw new Error('Add at least one item');
+    for (const l of lines) {
+      if (!l.item_id) throw new Error('Choose the item on every line');
+      const n = item(l.item_id).name;
+      if (!isNum(l.qty_ordered) || Number(l.qty_ordered) <= 0) throw new Error(`Enter a quantity for ${n}`);
+      if (!l.unit) throw new Error(`Tap Kilos or Units for ${n}`);
     }
-    let invoice_number = null;
-    if (action === 'invoice') {
-      const noPrice = o.lines.filter(l => !l.removed && (l.price === '' || l.price == null));
-      if (noPrice.length) throw new Error('Add a price for: ' + noPrice.map(l => item(l.item_id).name).join(', '));
-      invoice_number = prompt('Xero invoice number (optional, e.g. INV-10850):', '');
-      if (invoice_number === null) return;
-    }
-    if (action === 'unfulfil' && !confirm('Move this order back to New?')) return;
-    if (action === 'uninvoice' && !confirm('Undo invoiced? (Remember to fix the invoice in Xero too if needed.)')) return;
-    const payload = { id: o.id, action, customer_id: o.customer_id, delivery_date: o.delivery_date, notes: o.notes, invoice_number };
-    if (action !== 'uninvoice') payload.lines = o.lines.map(l => ({ item_id: l.item_id, qty_ordered: l.added_by_ops ? null : l.qty_ordered, qty_charged: l.qty_charged, price: l.price, added_by_ops: l.added_by_ops, removed: l.removed }));
-    const id = await q(sb.rpc('ord_save', { p: payload }));
-    toast({ save: 'Saved', fulfil: 'Marked fulfilled', invoice: 'Marked invoiced', unfulfil: 'Back to New', uninvoice: 'Back to Fulfilled' }[action]);
-    if (!o.id) return go('list');
-    await orderScreen(id);
+    const keepOps = o.lines.filter(l => l.added_by_ops);
+    const id = await q(sb.rpc('ord_save', { p: { id: o.id, action: 'order', customer_id: o.customer_id, delivery_date: o.delivery_date, prep_date: o.prep_date, notes: o.notes,
+      lines: lines.map(l => ({ id: l.id, item_id: l.item_id, qty_ordered: l.qty_ordered, unit: l.unit, removed: !!l.removed })), keep_ids: keepOps.map(l => l.id) } }));
+    toast(o.id ? 'Saved' : `Order #${id} saved`);
+    if (!o.id) orderScreen(null); else go('all');
   });
 }
 
-/* ---------- orders table ---------- */
-async function listScreen() {
-  let qy = sb.from('ord_orders').select('*, ord_lines(*)').order('delivery_date', { ascending: true }).order('id');
-  if (S.filter === 'open') qy = qy.in('status', ['new', 'fulfilled']);
-  else if (S.filter !== 'all') qy = qy.eq('status', S.filter);
-  if (S.date) qy = qy.eq('delivery_date', S.date);
-  if (S.filter === 'invoiced' || S.filter === 'all') qy = qy.limit(300);
+/* ================= PROCESSING ================= */
+const P = { day: '', tab: 'todo', timer: null, dirty: false };
+async function procScreen() {
+  const today = isoDay(0);
+  if (!P.day) P.day = today;
+  let qy = sb.from('ord_orders').select('*, ord_lines(*)').order('prep_date').order('delivery_date').order('id');
+  if (P.tab === 'todo') { qy = qy.eq('status', 'new'); qy = P.day === today ? qy.lte('prep_date', today) : qy.eq('prep_date', P.day); }
+  else qy = qy.neq('status', 'new').eq('prep_date', P.day);
   const orders = await q(qy);
-  const counts = {};
-  const rows = orders.map(o => {
-    const lines = o.ord_lines.sort((a, b) => a.position - b.position);
-    const tot = lines.reduce((s, l) => { const t = lineTotal(l); return t == null ? s : s + t; }, 0);
-    const summary = lines.filter(l => !l.removed).map(l => {
-      const it = item(l.item_id);
-      const shown = l.qty_charged != null ? `${qtyFmt(l.qty_charged)} ${it?.charge_unit}` : `${qtyFmt(l.qty_ordered)} ${it?.order_unit}`;
-      return `${esc(it?.name)} <b>${shown}</b>`;
-    }).join(' · ');
-    return `<tr class="click" data-open="${o.id}">
-      <td>#${o.id}</td><td>${ukDate(o.delivery_date)}</td><td><b>${esc(cust(o.customer_id)?.name)}</b></td>
-      <td style="font-size:15px">${summary}${o.notes ? `<div class="muted">📝 ${esc(o.notes)}</div>` : ''}</td>
-      <td class="num">${tot ? (o.status === 'new' ? '<span class="muted">approx </span>' : '') + money(tot) : '—'}</td>
-      <td><span class="badge s-${o.status}">${{ new: 'New', fulfilled: 'Fulfilled', invoiced: 'Invoiced' }[o.status]}</span>${o.invoice_number ? `<div class="muted">${esc(o.invoice_number)}</div>` : ''}</td>
-      <td class="muted">${esc((o.created_by || '').split('@')[0])}</td></tr>`;
-  }).join('');
-  const f = (k, t) => `<button data-f="${k}" class="${S.filter === k ? 'on' : ''}">${t}</button>`;
-  $('#view').innerHTML = `<div class="card">
-    <h2>Orders</h2>
-    <div class="filters">${f('open', 'Open (not invoiced)')}${f('new', 'New')}${f('fulfilled', 'Fulfilled – to invoice')}${f('invoiced', 'Invoiced')}${f('all', 'All')}
-      <span style="margin-left:12px">Delivery date:</span> <input type="date" id="f-date" value="${S.date}">
-      ${S.date ? '<button class="link" id="f-clear">show all dates</button>' : ''}
-      <button class="link" id="f-today">today</button><button class="link" id="f-tom">tomorrow</button></div>
-    ${orders.length ? `<table><thead><tr><th>#</th><th>Delivery</th><th>Customer</th><th>Items</th><th class="num">Total</th><th>Status</th><th>By</th></tr></thead><tbody>${rows}</tbody></table>`
-      : '<p class="muted">No orders here.</p>'}
-  </div>`;
-  document.querySelectorAll('.filters [data-f]').forEach(b => b.onclick = () => { S.filter = b.dataset.f; listScreen(); });
-  $('#f-date').onchange = e => { S.date = e.target.value; listScreen(); };
-  if ($('#f-clear')) $('#f-clear').onclick = () => { S.date = ''; listScreen(); };
-  $('#f-today').onclick = () => { S.date = isoDay(0); listScreen(); };
-  $('#f-tom').onclick = () => { S.date = isoDay(1); listScreen(); };
-  document.querySelectorAll('[data-open]').forEach(r => r.onclick = () => go('order/' + r.dataset.open));
+  orders.forEach(o => { o.lines = o.ord_lines.sort((a, b) => a.position - b.position); delete o.ord_lines; o.lines.forEach(l => { if (!l.sent_unit && !l.added_by_ops) l.sent_unit = l.unit; }); });
+  P.dirty = false;
+  const d = P.day;
+  $('#view').innerHTML = `
+    <div class="pills">
+      <button data-day="${today}" class="${d === today ? 'on' : ''}">Today</button>
+      <button data-day="${isoDay(1)}" class="${d === isoDay(1) ? 'on' : ''}">Tomorrow</button>
+      <input type="date" id="p-day" value="${d}">
+      <span style="flex:1"></span>
+      <button data-tab="todo" class="${P.tab === 'todo' ? 'on' : ''}">To do</button>
+      <button data-tab="done" class="${P.tab === 'done' ? 'on' : ''}">Done</button>
+      <button id="p-ref">↻ Refresh</button>
+    </div>
+    <div id="p-list"></div>`;
+  document.querySelectorAll('[data-day]').forEach(b => b.onclick = () => { P.day = b.dataset.day; procScreen(); });
+  $('#p-day').onchange = e => { P.day = e.target.value || today; procScreen(); };
+  document.querySelectorAll('.pills [data-tab]').forEach(b => b.onclick = () => { P.tab = b.dataset.tab; procScreen(); });
+  $('#p-ref').onclick = () => procScreen();
+  const list = $('#p-list');
+  if (!orders.length) list.innerHTML = `<div class="card"><h2>${P.tab === 'todo' ? 'Nothing to prepare' : 'Nothing done yet'} — ${ukDate(d)}</h2></div>`;
+  orders.forEach(o => list.appendChild(P.tab === 'todo' ? procCard(o) : doneCard(o)));
+  P.timer = setInterval(() => { if (!P.dirty && cur === 'proc' && !document.activeElement?.matches('input')) procScreen(); }, 90000);
+}
+function procCard(o) {
+  const el = document.createElement('div');
+  const late = o.prep_date < isoDay(0);
+  el.className = 'pcard' + (late ? ' late' : '');
+  function draw() {
+    el.innerHTML = `
+      <div class="ph"><span class="cust">${esc(cust(o.customer_id)?.name)}</span>
+        <span class="muted">#${o.id} · deliver ${ukDate(o.delivery_date)}${late ? ` · <b style="color:#b3261e">LATE – was due ${ukDate(o.prep_date)}</b>` : ''}</span></div>
+      ${o.notes ? `<div class="note">📝 ${esc(o.notes)}</div>` : ''}
+      ${o.lines.map((l, ix) => `<div class="pline ${l.removed ? 'off' : ''}">
+        <div class="nm">${esc(item(l.item_id)?.name)}${l.added_by_ops ? '<span class="tag">added</span>' : ''}
+          <span class="ord">${l.added_by_ops ? 'Not on the order' : `Ordered: <b>${qf(l.qty_ordered)} ${U(l.unit)}</b>`}</span></div>
+        ${l.removed ? '' : `<input class="sent" data-ix="${ix}" inputmode="decimal" placeholder="Sent" value="${esc(qf(l.qty_sent))}">${tog(l.sent_unit, `data-ix="${ix}"`)}`}
+        <button class="notsent" data-ns="${ix}">${l.removed ? 'Put back' : 'Not sent'}</button>
+      </div>`).join('')}
+      <div class="pfoot">
+        <div class="add"></div>
+        <button class="btn" data-save>Save for later</button>
+        <button class="big" data-done>✓ Done</button>
+      </div>`;
+    el.querySelectorAll('input.sent').forEach(i => {
+      i.oninput = () => { o.lines[i.dataset.ix].qty_sent = i.value.trim(); P.dirty = true; };
+      i.onkeydown = e => { if (e.key === 'Enter') { const all = [...el.querySelectorAll('input.sent')]; const n = all[all.indexOf(i) + 1]; if (n) n.focus(); else i.blur(); } };
+    });
+    el.querySelectorAll('.tog button').forEach(b => b.onclick = () => {
+      o.lines[b.dataset.ix].sent_unit = b.dataset.u; P.dirty = true;
+      b.parentNode.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); b.parentNode.classList.remove('need');
+    });
+    el.querySelectorAll('[data-ns]').forEach(b => b.onclick = () => { const l = o.lines[b.dataset.ns]; l.removed = !l.removed; P.dirty = true; draw(); });
+    combo(el.querySelector('.add'), { list: () => items, value: null, clear: true, placeholder: '+ Add an item that wasn’t ordered…', addWord: 'item', onAdd: newItem,
+      onPick: id => { o.lines.push({ item_id: id, qty_sent: '', sent_unit: '', added_by_ops: true, removed: false }); P.dirty = true; draw(); const s = el.querySelectorAll('input.sent'); s[s.length - 1]?.focus(); } });
+    el.querySelector('[data-save]').onclick = () => procSave(o, 'sent');
+    el.querySelector('[data-done]').onclick = () => procSave(o, 'fulfil');
+  }
+  draw();
+  return el;
+}
+function procSave(o, action) {
+  safe(async () => {
+    for (const l of o.lines) {
+      if (l.removed) continue;
+      const n = item(l.item_id)?.name;
+      if (l.qty_sent !== '' && l.qty_sent != null && !isNum(l.qty_sent)) throw new Error(`"${l.qty_sent}" is not a number (${n})`);
+      if (action === 'fulfil') {
+        if (!isNum(l.qty_sent)) throw new Error(`Fill in what was sent for ${n} — or tap Not sent`);
+        if (!l.sent_unit) throw new Error(`Tap Kilos or Units for ${n}`);
+      }
+    }
+    await q(sb.rpc('ord_save', { p: { id: o.id, action, lines: o.lines.map(l => ({ id: l.id, item_id: l.item_id, qty_sent: l.qty_sent, sent_unit: l.sent_unit, removed: !!l.removed })) } }));
+    toast(action === 'fulfil' ? `✓ ${cust(o.customer_id)?.name} done` : 'Saved');
+    P.dirty = false; procScreen();
+  });
+}
+function doneCard(o) {
+  const el = document.createElement('div'); el.className = 'pcard'; el.style.borderLeftColor = '#1f7a3a';
+  el.innerHTML = `<div class="ph"><span class="cust">${esc(cust(o.customer_id)?.name)}</span><span class="muted">#${o.id} · deliver ${ukDate(o.delivery_date)} · done by ${esc((o.fulfilled_by || '').split('@')[0])}</span></div>
+    <div style="padding:4px 16px 12px">${o.lines.filter(l => !l.removed).map(l => `${esc(item(l.item_id)?.name)} <b>${qf(l.qty_sent)} ${U(l.sent_unit)}</b>`).join(' · ')}</div>
+    ${o.status === 'fulfilled' ? '<div class="pfoot"><button class="btn" data-re>Reopen to change</button></div>' : '<div class="pfoot muted">Already invoiced – ask the office to change it</div>'}`;
+  const re = el.querySelector('[data-re]');
+  if (re) re.onclick = () => safe(async () => { await q(sb.rpc('ord_save', { p: { id: o.id, action: 'unfulfil' } })); P.tab = 'todo'; P.day = o.prep_date < isoDay(0) ? isoDay(0) : o.prep_date; procScreen(); });
+  return el;
 }
 
-/* ---------- customers & items ---------- */
+/* ================= INVOICING ================= */
+const I = { tab: 'todo' };
+async function invScreen() {
+  $('#view').innerHTML = `<div class="pills">
+      <button data-t="todo" class="${I.tab === 'todo' ? 'on' : ''}">To invoice</button>
+      <button data-t="done" class="${I.tab === 'done' ? 'on' : ''}">Invoiced</button>
+      <button data-t="waiting" class="${I.tab === 'waiting' ? 'on' : ''}">Not prepared yet</button></div><div id="i-list"></div>`;
+  document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; invScreen(); });
+  const status = { todo: 'fulfilled', done: 'invoiced', waiting: 'new' }[I.tab];
+  let qy = sb.from('ord_orders').select('*, ord_lines(*)').eq('status', status);
+  qy = I.tab === 'done' ? qy.order('invoiced_at', { ascending: false }).limit(200) : qy.order('delivery_date').order('id');
+  const orders = await q(qy);
+  orders.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position); delete o.ord_lines; });
+  const list = $('#i-list');
+  if (!orders.length) { list.innerHTML = `<div class="card"><h2>Nothing here</h2></div>`; return; }
+
+  if (I.tab === 'waiting') {
+    list.innerHTML = `<div class="card"><p class="muted">Not prepared yet, so nothing to invoice.</p><table><thead><tr><th>#</th><th>Delivery</th><th>Customer</th></tr></thead><tbody>${orders.map(o => `<tr><td>#${o.id}</td><td>${ukDate(o.delivery_date)}</td><td>${esc(cust(o.customer_id)?.name)}</td></tr>`).join('')}</tbody></table></div>`;
+    return;
+  }
+  const prices = await pricesFor(orders.flatMap(o => o.lines.map(l => l.id)));
+  if (I.tab === 'done') {
+    list.innerHTML = `<div class="card"><table><thead><tr><th>#</th><th>Delivery</th><th>Customer</th><th class="num">Total</th><th>Invoice no.</th><th></th></tr></thead><tbody>${orders.map(o => {
+      const t = o.lines.reduce((s, l) => s + (prices[l.id] != null ? Number(l.qty_sent) * prices[l.id] : 0), 0);
+      return `<tr><td>#${o.id}</td><td>${ukDate(o.delivery_date)}</td><td>${esc(cust(o.customer_id)?.name)}</td><td class="num">${money(t)}</td><td>${esc(o.invoice_number || '')}</td>
+        <td class="num"><button class="link" data-un="${o.id}">Undo invoiced</button></td></tr>`; }).join('')}</tbody></table></div>`;
+    document.querySelectorAll('[data-un]').forEach(b => b.onclick = () => safe(async () => {
+      if (!confirm('Undo invoiced for #' + b.dataset.un + '? (Fix the invoice in Xero too if needed.)')) return;
+      await q(sb.rpc('ord_save', { p: { id: Number(b.dataset.un), action: 'uninvoice' } })); toast('Moved back to To invoice'); invScreen();
+    }));
+    return;
+  }
+  const custIds = [...new Set(orders.map(o => o.customer_id))];
+  const last = {};
+  (await q(sb.from('ord_last_prices').select('*').in('customer_id', custIds))).forEach(r => last[`${r.customer_id}|${r.item_id}|${r.unit}`] = r);
+  orders.forEach(o => o.lines.forEach(l => {
+    l.price = prices[l.id] ?? '';
+    l.last = last[`${o.customer_id}|${l.item_id}|${l.sent_unit}`];
+    if (l.price === '' && l.last) l.price = l.last.price;
+  }));
+  orders.forEach(o => list.appendChild(invCard(o)));
+}
+function invCard(o) {
+  const el = document.createElement('div'); el.className = 'card';
+  const lt = l => isNum(l.price) ? Math.round(Number(l.qty_sent) * Number(l.price) * 100) / 100 : null;
+  const tot = () => o.lines.reduce((s, l) => s + (lt(l) ?? 0), 0);
+  el.innerHTML = `<h2>${esc(cust(o.customer_id)?.name)} <span class="muted">#${o.id} · delivery ${ukDate(o.delivery_date)}</span></h2>
+    <table><thead><tr><th>Item</th><th class="num">Sent</th><th class="num">Price</th><th class="num">Total</th></tr></thead><tbody>
+    ${o.lines.map((l, ix) => `<tr><td>${esc(item(l.item_id)?.name)}</td><td class="num">${qf(l.qty_sent)} ${U(l.sent_unit)}</td>
+      <td class="num">£ <input class="price" inputmode="decimal" data-ix="${ix}" value="${esc(l.price)}"> /${per(l.sent_unit)}
+        ${l.last ? `<div><span class="last">Last invoiced ${money(l.last.price)}/${per(l.sent_unit)} · ${ukDate(l.last.delivery_date)}</span></div>` : '<div class="muted">first time – enter price</div>'}</td>
+      <td class="num" data-lt="${ix}">${money(lt(l))}</td></tr>`).join('')}
+    </tbody></table>
+    <div class="total" data-tot>Total: ${money(tot())}</div>
+    <div class="actions" style="justify-content:flex-end">
+      <button class="btn" data-sp>Save prices</button>
+      <input placeholder="Xero invoice no. (optional)" style="width:240px" data-inv>
+      <button class="big blue" data-mi>Mark invoiced</button>
+    </div>`;
+  el.querySelectorAll('input.price').forEach(i => i.oninput = () => {
+    const l = o.lines[i.dataset.ix]; l.price = i.value.trim();
+    el.querySelector(`[data-lt="${i.dataset.ix}"]`).textContent = money(lt(l));
+    el.querySelector('[data-tot]').textContent = 'Total: ' + money(tot());
+  });
+  const send = action => safe(async () => {
+    for (const l of o.lines) {
+      if (l.price !== '' && !isNum(l.price)) throw new Error(`"${l.price}" is not a price (${item(l.item_id)?.name})`);
+      if (action === 'invoice' && !isNum(l.price)) throw new Error(`Enter a price for ${item(l.item_id)?.name}`);
+    }
+    await q(sb.rpc('ord_save', { p: { id: o.id, action, invoice_number: el.querySelector('[data-inv]').value, lines: o.lines.map(l => ({ id: l.id, price: l.price })) } }));
+    toast(action === 'invoice' ? `#${o.id} marked invoiced` : 'Prices saved');
+    if (action === 'invoice') invScreen();
+  });
+  el.querySelector('[data-sp]').onclick = () => send('prices');
+  el.querySelector('[data-mi]').onclick = () => send('invoice');
+  return el;
+}
+
+/* ================= ADMIN: all orders ================= */
+const A = { f: 'open', date: '' };
+async function allScreen() {
+  let qy = sb.from('ord_orders').select('*, ord_lines(*)').order('prep_date', { ascending: A.f === 'open' }).order('id');
+  if (A.f === 'open') qy = qy.neq('status', 'invoiced'); else if (A.f !== 'all') qy = qy.eq('status', A.f);
+  if (A.date) qy = qy.eq('delivery_date', A.date);
+  if (A.f !== 'open') qy = qy.limit(300);
+  const orders = await q(qy);
+  const prices = await pricesFor(orders.flatMap(o => o.ord_lines.map(l => l.id)));
+  const f = (k, t) => `<button data-f="${k}" class="${A.f === k ? 'on' : ''}">${t}</button>`;
+  $('#view').innerHTML = `<div class="card"><h2>All orders</h2>
+    <div class="pills">${f('open', 'Not invoiced')}${f('new', 'To prepare')}${f('fulfilled', 'Ready to invoice')}${f('invoiced', 'Invoiced')}${f('all', 'All')}
+      <span>Delivery:</span><input type="date" id="a-date" value="${A.date}">${A.date ? '<button class="link" id="a-clr">all dates</button>' : ''}</div>
+    ${orders.length ? `<table><thead><tr><th>#</th><th>Prepare</th><th>Delivery</th><th>Customer</th><th>Items</th><th class="num">Total</th><th>Status</th></tr></thead><tbody>${orders.map(o => {
+      const ls = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position);
+      const tot = ls.reduce((s, l) => s + (prices[l.id] != null && isNum(l.qty_sent) ? l.qty_sent * prices[l.id] : 0), 0);
+      return `<tr class="click" data-o="${o.id}"><td>#${o.id}</td><td>${ukDate(o.prep_date)}</td><td>${ukDate(o.delivery_date)}</td><td><b>${esc(cust(o.customer_id)?.name)}</b></td>
+        <td style="font-size:15px">${ls.map(l => `${esc(item(l.item_id)?.name)} <b>${l.qty_sent != null ? qf(l.qty_sent) + ' ' + U(l.sent_unit) : qf(l.qty_ordered) + ' ' + U(l.unit)}</b>`).join(' · ')}${o.notes ? `<div class="muted">📝 ${esc(o.notes)}</div>` : ''}</td>
+        <td class="num">${tot ? money(tot) : '—'}</td><td><span class="badge s-${o.status}">${ST[o.status]}</span>${o.invoice_number ? `<div class="muted">${esc(o.invoice_number)}</div>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<p class="muted">No orders.</p>'}</div>`;
+  document.querySelectorAll('.pills [data-f]').forEach(b => b.onclick = () => { A.f = b.dataset.f; allScreen(); });
+  $('#a-date').onchange = e => { A.date = e.target.value; allScreen(); };
+  if ($('#a-clr')) $('#a-clr').onclick = () => { A.date = ''; allScreen(); };
+  document.querySelectorAll('[data-o]').forEach(r => r.onclick = () => go('order/' + r.dataset.o));
+}
+
+/* ================= ADMIN: customers & items ================= */
 async function setupScreen() {
   await loadLists();
-  const unitSel = (id, f, v) => `<select data-item="${id}" data-uf="${f}">${Object.keys(UNITS).map(u => `<option ${u === v ? 'selected' : ''}>${u}</option>`).join('')}</select>`;
+  const list = (rows, kind) => rows.map(r => `<tr style="${r.active ? '' : 'color:#999'}" data-name="${esc(r.name.toLowerCase())}"><td>${esc(r.name)}${r.active ? '' : ' <span class="tag">hidden</span>'}</td>
+    <td class="num"><button class="link" data-rn="${kind}:${r.id}">Rename</button><button class="link" data-hd="${kind}:${r.id}">${r.active ? 'Hide' : 'Show'}</button></td></tr>`).join('');
   $('#view').innerHTML = `<div class="row" style="align-items:flex-start">
-    <div class="card"><h2>Customers</h2><button class="btn blue" id="s-addc">+ Add customer</button>
-      <table style="margin-top:10px"><tbody>${customers.map(c => `<tr class="${c.active ? '' : 'removed'}"><td>${esc(c.name)}</td>
-        <td class="keep num"><button class="link" data-rc="${c.id}">Rename</button><button class="link" data-hc="${c.id}">${c.active ? 'Hide' : 'Show'}</button></td></tr>`).join('')}</tbody></table></div>
-    <div class="card"><h2>Items</h2><button class="btn blue" id="s-addi">+ Add item</button>
-      <p class="muted">"Ordered by" is what the order taker types (e.g. 6 each). "Charged by" is what ops enter and the price is per (e.g. kg).</p>
-      <table><thead><tr><th>Item</th><th>Ordered by</th><th>Charged by</th><th></th></tr></thead><tbody>${items.map(i => `<tr class="${i.active ? '' : 'removed'}"><td>${esc(i.name)}</td>
-        <td class="keep">${unitSel(i.id, 'order_unit', i.order_unit)}</td><td class="keep">${unitSel(i.id, 'charge_unit', i.charge_unit)}</td>
-        <td class="keep num"><button class="link" data-ri="${i.id}">Rename</button><button class="link" data-hi="${i.id}">${i.active ? 'Hide' : 'Show'}</button></td></tr>`).join('')}</tbody></table></div>
-  </div>`;
-  $('#s-addc').onclick = () => safe(async () => { if (await addCustomer()) setupScreen(); });
-  $('#s-addi').onclick = () => safe(async () => { if (await addItem()) setupScreen(); });
-  const upd = (tbl, id, patch) => safe(async () => { await q(sb.from(tbl).update(patch).eq('id', id)); toast('Saved'); setupScreen(); });
-  document.querySelectorAll('[data-rc]').forEach(b => b.onclick = () => { const c = cust(b.dataset.rc), n = prompt('Rename customer:', c.name); if (n && n.trim()) upd('ord_customers', c.id, { name: n.trim() }); });
-  document.querySelectorAll('[data-hc]').forEach(b => b.onclick = () => { const c = cust(b.dataset.hc); upd('ord_customers', c.id, { active: !c.active }); });
-  document.querySelectorAll('[data-ri]').forEach(b => b.onclick = () => { const i = item(b.dataset.ri), n = prompt('Rename item:', i.name); if (n && n.trim()) upd('ord_items', i.id, { name: n.trim() }); });
-  document.querySelectorAll('[data-hi]').forEach(b => b.onclick = () => { const i = item(b.dataset.hi); upd('ord_items', i.id, { active: !i.active }); });
-  document.querySelectorAll('[data-uf]').forEach(s => s.onchange = () => upd('ord_items', s.dataset.item, { [s.dataset.uf]: s.value }));
+    <div class="card"><h2>Customers</h2><div class="row"><input id="s-fc" placeholder="Search, or type a new name and press Add"><button class="btn blue" style="flex:none" id="s-ac">+ Add</button></div>
+      <table style="margin-top:8px"><tbody id="s-tc">${list(customers, 'c')}</tbody></table></div>
+    <div class="card"><h2>Items</h2><div class="row"><input id="s-fi" placeholder="Search, or type a new name and press Add"><button class="btn blue" style="flex:none" id="s-ai">+ Add</button></div>
+      <table style="margin-top:8px"><tbody id="s-ti">${list(items, 'i')}</tbody></table></div></div>`;
+  const filt = (inp, tb) => inp.oninput = () => { const t = inp.value.trim().toLowerCase(); tb.querySelectorAll('tr').forEach(r => r.style.display = r.dataset.name.includes(t) ? '' : 'none'); };
+  filt($('#s-fc'), $('#s-tc')); filt($('#s-fi'), $('#s-ti'));
+  $('#s-ac').onclick = () => safe(async () => { const n = $('#s-fc').value.trim(); if (!n) throw new Error('Type the new customer name in the box first'); await newCustomer(n); setupScreen(); });
+  $('#s-ai').onclick = () => safe(async () => { const n = $('#s-fi').value.trim(); if (!n) throw new Error('Type the new item name in the box first'); await newItem(n); setupScreen(); });
+  const tbl = k => k === 'c' ? 'ord_customers' : 'ord_items', find = (k, id) => (k === 'c' ? customers : items).find(r => r.id == id);
+  document.querySelectorAll('[data-rn]').forEach(b => b.onclick = () => safe(async () => { const [k, id] = b.dataset.rn.split(':'), r = find(k, id), n = prompt('New name:', r.name); if (!n || !n.trim()) return; await q(sb.from(tbl(k)).update({ name: n.trim() }).eq('id', id)); setupScreen(); }));
+  document.querySelectorAll('[data-hd]').forEach(b => b.onclick = () => safe(async () => { const [k, id] = b.dataset.hd.split(':'), r = find(k, id); await q(sb.from(tbl(k)).update({ active: !r.active }).eq('id', id)); setupScreen(); }));
 }
 
-/* ---------- staff ---------- */
+/* ================= ADMIN: staff ================= */
+const GROUPS = { admin: 'Admin – sees everything', processing: 'Processing – prepares orders, no prices', invoicing: 'Invoicing – prices & invoices' };
 async function staffScreen() {
-  const people = await q(sb.from('ord_users').select('*').order('name'));
-  $('#view').innerHTML = `<div class="card"><h2>Staff who can use orders</h2>
-    <table><thead><tr><th>Name</th><th>Email (login)</th><th></th></tr></thead><tbody>${people.map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.email)}</td>
+  const people = await q(sb.from('ord_users').select('*').order('role').order('name'));
+  const gsel = (v, attrs) => `<select ${attrs}>${Object.entries(GROUPS).map(([k, t]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  $('#view').innerHTML = `<div class="card"><h2>Staff</h2>
+    <table><thead><tr><th>Name</th><th>Email (login)</th><th>Group</th><th></th></tr></thead><tbody>${people.map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.email)}</td>
+      <td>${p.email === me.toLowerCase() ? GROUPS[p.role] : gsel(p.role, `data-role="${esc(p.email)}"`)}</td>
       <td class="num">${p.email === me.toLowerCase() ? '<span class="muted">you</span>' : `<button class="link" data-rm="${esc(p.email)}">Remove</button>`}</td></tr>`).join('')}</tbody></table></div>
   <div class="card"><h2>Add a person</h2>
     <div class="row"><div><label>Name</label><input id="p-name"></div><div><label>Email</label><input id="p-email" type="email"></div>
-    <div><label>Starting password</label><input id="p-pass" placeholder="at least 6 characters"></div></div>
-    <p class="muted">Give them their email and this password. They can change it below once signed in.</p>
-    <div class="actions"><button class="big" id="p-add">Add person</button></div></div>
-  <div class="card"><h2>Change my password</h2><div class="row"><div><label>New password</label><input id="p-mine" type="password"></div></div>
-    <div class="actions"><button class="btn blue" id="p-chg">Change password</button></div></div>`;
+      <div><label>Starting password</label><input id="p-pass" placeholder="at least 6 characters"></div><div><label>Group</label>${gsel('processing', 'id="p-role"')}</div></div>
+    <p class="muted">Give them their email and password. They can change it with the “Password” link at the top once signed in.</p>
+    <div class="actions"><button class="big" id="p-add">Add person</button></div></div>`;
   $('#p-add').onclick = () => safe(async () => {
-    await q(sb.rpc('ord_add_person', { p_email: $('#p-email').value, p_name: $('#p-name').value, p_password: $('#p-pass').value }));
+    await q(sb.rpc('ord_add_person', { p_email: $('#p-email').value, p_name: $('#p-name').value, p_password: $('#p-pass').value, p_role: $('#p-role').value }));
     toast('Added'); staffScreen();
   });
+  document.querySelectorAll('[data-role]').forEach(s => s.onchange = () => safe(async () => { await q(sb.from('ord_users').update({ role: s.value }).eq('email', s.dataset.role)); toast('Group changed'); }));
   document.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => safe(async () => {
-    if (!confirm('Remove ' + b.dataset.rm + ' from orders?')) return;
-    await q(sb.from('ord_users').delete().eq('email', b.dataset.rm)); toast('Removed'); staffScreen();
+    if (!confirm('Remove ' + b.dataset.rm + '?')) return; await q(sb.from('ord_users').delete().eq('email', b.dataset.rm)); toast('Removed'); staffScreen();
   }));
-  $('#p-chg').onclick = () => safe(async () => {
-    const pw = $('#p-mine').value; if (pw.length < 6) throw new Error('At least 6 characters');
-    const { error } = await sb.auth.updateUser({ password: pw }); if (error) throw error; toast('Password changed'); $('#p-mine').value = '';
-  });
 }
 
 boot();
