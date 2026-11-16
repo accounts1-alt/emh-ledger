@@ -736,7 +736,7 @@ async function setupScreen() {
   $('#view').innerHTML = `<div class="card"><h2>Xero</h2>
     ${XERO.connected ? `<p>✅ Connected to <b>${esc(XERO.tenant_name)}</b>${XERO.connected_by ? ` by ${esc(uname(XERO.connected_by))}` : ''}. Invoicing has a <b>Send to Xero</b> button that creates a <b>draft</b> invoice.</p>
       <div class="actions"><button class="btn" id="x-con">Reconnect</button><button class="link" id="x-dis">Disconnect</button></div>`
-    : `<p>Not connected. Click below and approve in Xero – you’ll come straight back here.</p><div class="actions"><button class="big blue" id="x-con">Connect Xero</button></div>`}</div>
+    : `<p>Not connected. Click below and approve in Xero – you’ll come straight back here.</p>${XERO.client_hint ? `<p class="muted">Client ID in use: <b>${esc(XERO.client_hint)}</b> – it should match the Client ID on your Xero app page (32 characters).</p>` : ''}<div class="actions"><button class="big blue" id="x-con">Connect Xero</button></div>`}</div>
     <div class="card"><h2>Tray weight</h2>
     <div class="row" style="align-items:center"><div style="flex:none"><input id="s-tray" inputmode="decimal" style="width:120px;text-align:right" value="${TRAY}"></div><div style="flex:none">kg per tray</div>
     <div style="flex:none"><button class="btn blue" id="s-tsave">Save</button></div>

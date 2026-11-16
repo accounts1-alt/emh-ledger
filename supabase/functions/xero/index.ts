@@ -6,8 +6,8 @@
 //  POST /xero {action:'send', order_id} admin/invoicing: create a DRAFT invoice in Xero, mark order invoiced
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const CLIENT_ID = Deno.env.get('XERO_CLIENT_ID') ?? '';
-const CLIENT_SECRET = Deno.env.get('XERO_CLIENT_SECRET') ?? '';
+const CLIENT_ID = (Deno.env.get('XERO_CLIENT_ID') ?? '').trim().replace(/^["']|["']$/g, '');
+const CLIENT_SECRET = (Deno.env.get('XERO_CLIENT_SECRET') ?? '').trim().replace(/^["']|["']$/g, '');
 const SB_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const REDIRECT = `${SB_URL}/functions/v1/xero/callback`;
@@ -142,7 +142,8 @@ Deno.serve(async req => {
 
     if (b.action === 'status') {
       const { data: a } = await db.from('xero_auth').select('tenant_name, connected_by, connected_at, refresh_token').eq('id', 1).maybeSingle();
-      return json({ connected: !!a?.refresh_token, tenant_name: a?.tenant_name ?? null, connected_by: a?.connected_by ?? null, connected_at: a?.connected_at ?? null });
+      return json({ connected: !!a?.refresh_token, tenant_name: a?.tenant_name ?? null, connected_by: a?.connected_by ?? null, connected_at: a?.connected_at ?? null,
+        client_hint: me.role === 'admin' ? `${CLIENT_ID.slice(0, 4)}…${CLIENT_ID.slice(-4)} (${CLIENT_ID.length} characters)` : null });
     }
     if (b.action === 'auth_url') {
       if (me.role !== 'admin') throw new Fail('Only admins can connect Xero');
