@@ -443,8 +443,8 @@ async function procScreen() {
       <div class="chips">${chip('', 'All')}${chip(today, 'Today')}${chip(isoDay(1), 'Tomorrow')}</div>
     </div>
     <div id="p-list"></div>`;
-  document.querySelectorAll('[data-day]').forEach(b => b.onclick = () => { P.day = b.dataset.day; procScreen(); });
-  document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { P.tab = b.dataset.tab; procScreen(); });
+  document.querySelectorAll('.chips [data-day]').forEach(b => b.onclick = () => { P.day = b.dataset.day; procScreen(); });
+  document.querySelectorAll('.seg [data-tab]').forEach(b => b.onclick = () => { P.tab = b.dataset.tab; procScreen(); });
   const list = $('#p-list');
   if (!orders.length) list.innerHTML = `<div class="empty">${P.tab === 'todo' ? 'Nothing to prepare' : 'Nothing done yet'} 👍</div>`;
   orders.forEach(o => {
@@ -572,7 +572,7 @@ async function invScreen() {
       <button data-t="todo" class="${I.tab === 'todo' ? 'on' : ''}">To invoice</button>
       <button data-t="done" class="${I.tab === 'done' ? 'on' : ''}">Invoiced</button>
       <button data-t="waiting" class="${I.tab === 'waiting' ? 'on' : ''}">Not prepared yet</button></div><div class="olist" id="i-list"></div>`;
-  document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; I.open = null; invScreen(); });
+  document.querySelectorAll('.pills [data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; I.open = null; invScreen(); });
   const status = { todo: 'fulfilled', done: 'invoiced', waiting: 'new' }[I.tab];
   let qy = sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('status', status);
   qy = I.tab === 'done' ? qy.order('invoiced_at', { ascending: false }).limit(200) : qy.order('delivery_date').order('id');
