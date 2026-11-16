@@ -267,7 +267,7 @@ function go(tab) {
 let O = null;
 async function orderScreen(id) {
   if (id) {
-    const o = await q(sb.from('ord_orders').select('*, ord_lines(*)').eq('id', id).single());
+    const o = await q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('id', id).single());
     o.lines = o.ord_lines.sort((a, b) => a.position - b.position); delete o.ord_lines;
     o.prices = await pricesFor(o.lines.map(l => l.id));
     O = o;
@@ -381,7 +381,7 @@ function itemsShort(o, sent) {
 }
 async function procScreen() {
   const today = isoDay(0), d = P.day;
-  let qy = sb.from('ord_orders').select('*, ord_lines(*)').order('prep_date').order('delivery_date').order('id');
+  let qy = sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').order('prep_date').order('delivery_date').order('id');
   if (P.tab === 'todo') { qy = qy.eq('status', 'new'); if (d === today) qy = qy.lte('prep_date', today); else if (d) qy = qy.eq('prep_date', d); }
   else { qy = qy.eq('status', 'fulfilled'); if (d) qy = qy.eq('prep_date', d); }
   const orders = await q(qy);
@@ -516,7 +516,7 @@ async function invScreen() {
       <button data-t="waiting" class="${I.tab === 'waiting' ? 'on' : ''}">Not prepared yet</button></div><div class="olist" id="i-list"></div>`;
   document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; I.open = null; invScreen(); });
   const status = { todo: 'fulfilled', done: 'invoiced', waiting: 'new' }[I.tab];
-  let qy = sb.from('ord_orders').select('*, ord_lines(*)').eq('status', status);
+  let qy = sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('status', status);
   qy = I.tab === 'done' ? qy.order('invoiced_at', { ascending: false }).limit(200) : qy.order('delivery_date').order('id');
   const orders = await q(qy);
   orders.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position); delete o.ord_lines; });
@@ -586,7 +586,7 @@ async function invScreen() {
 /* ================= ADMIN: all orders ================= */
 const A = { f: 'open', date: '' };
 async function allScreen() {
-  let qy = sb.from('ord_orders').select('*, ord_lines(*)').order('prep_date', { ascending: A.f === 'open' }).order('id');
+  let qy = sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').order('prep_date', { ascending: A.f === 'open' }).order('id');
   if (A.f === 'open') qy = qy.neq('status', 'invoiced'); else if (A.f !== 'all') qy = qy.eq('status', A.f);
   if (A.date) qy = qy.eq('delivery_date', A.date);
   if (A.f !== 'open') qy = qy.limit(300);
