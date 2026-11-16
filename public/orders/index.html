@@ -98,6 +98,56 @@
   .lbtns { display: flex; gap: 6px; }
   .later { flex-basis: 100%; background: #eef3f8; border-radius: 8px; padding: 8px 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   @media (max-width: 700px) { .orow { flex-wrap: wrap; gap: 4px 12px; } .orow .c { flex: 1 1 auto; } .orow .i { flex-basis: 100%; order: 5; white-space: normal; } }
+  .ptop { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 16px; }
+  .seg { display: inline-flex; background: #e6e4dc; border-radius: 12px; padding: 4px; }
+  .seg button { border: 0; background: none; padding: 10px 26px; border-radius: 9px; font-weight: 700; font-size: 17px; color: #555; }
+  .seg button.on { background: #fff; color: #1b1b1b; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .chips { display: flex; gap: 6px; }
+  .chips button { border: 0; background: none; padding: 8px 14px; border-radius: 99px; font-weight: 600; color: #666; }
+  .chips button.on { background: #1b1b1b; color: #fff; }
+  .empty { text-align: center; color: #888; font-size: 20px; padding: 60px 0; }
+  .ocard { display: block; width: 100%; text-align: left; background: #fff; border: 0; border-radius: 14px; padding: 16px 20px; margin-bottom: 10px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04); transition: transform .08s, box-shadow .08s; }
+  .ocard:hover { box-shadow: 0 2px 4px rgba(0,0,0,.08), 0 6px 18px rgba(0,0,0,.08); }
+  .ocard:active { transform: scale(.995); }
+  .oc-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .oc-name { font-size: 20px; font-weight: 800; }
+  .oc-date { color: #888; font-size: 14px; white-space: nowrap; }
+  .ocard.late .oc-date { color: #b3261e; font-weight: 700; }
+  .oc-items { color: #555; font-size: 15px; margin-top: 4px; }
+  .oc-note { margin-top: 6px; font-size: 14px; color: #8a6d00; }
+  .mback { position: fixed; inset: 0; background: rgba(20,20,20,.45); display: flex; align-items: flex-start; justify-content: center; z-index: 50; padding: 6vh 12px 12px; overflow: auto; }
+  .mbox { background: #fff; border-radius: 18px; width: 100%; max-width: 620px; padding: 22px 24px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+  .mh { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+  .mt { font-size: 24px; font-weight: 800; } .ms { color: #888; font-size: 14px; margin-top: 2px; }
+  .mx { border: 0; background: #f0efea; width: 38px; height: 38px; border-radius: 50%; font-size: 16px; color: #555; flex: none; }
+  .mnote { background: #fff6cf; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-weight: 600; }
+  .wl { border-top: 1px solid #eee; }
+  .wrow { display: grid; grid-template-columns: 1fr 90px 100px 70px 36px; gap: 12px; align-items: center; padding: 11px 0; border-bottom: 1px solid #eee; }
+  .wrow.wh { font-size: 13px; color: #999; padding: 8px 0; } .wrow.wh span:nth-child(n+2) { text-align: center; }
+  .wn { font-size: 18px; font-weight: 700; } .wo { color: #666; text-align: center; }
+  .wi { width: 100%; text-align: center; font-size: 19px; font-weight: 700; padding: 9px 6px; border: 1.5px solid #ccc; border-radius: 10px; }
+  .wi:focus { border-color: #1f4f7a; outline: none; box-shadow: 0 0 0 3px rgba(31,79,122,.15); }
+  .ws { width: 100%; font-size: 17px; padding: 9px 4px; border: 1.5px solid #ccc; border-radius: 10px; text-align: center; }
+  .wrow > span:nth-child(3), .wrow > span:nth-child(4) { text-align: center; }
+  .wrow.dim .wn { color: #999; text-decoration: line-through; }
+  .wstate { grid-column: span 2; display: flex; gap: 6px; justify-content: center; align-items: center; color: #666; font-size: 14px; white-space: nowrap; }
+  .wstate .ld { width: auto; padding: 5px 6px; font-size: 14px; }
+  .lk { border: 0; background: none; color: #1f4f7a; text-decoration: underline; padding: 0 2px; }
+  .dots { position: relative; text-align: right; }
+  .db { border: 0; background: none; font-size: 22px; line-height: 1; color: #888; width: 34px; height: 34px; border-radius: 50%; }
+  .db:hover { background: #f0efea; color: #333; }
+  .dm { position: absolute; right: 0; top: 38px; z-index: 30; background: #fff; border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: 6px; min-width: 190px; text-align: left; }
+  .dm button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 11px 14px; border-radius: 8px; font-weight: 600; }
+  .dm button:hover { background: #f3f2ed; } .dm .danger { color: #b3261e; }
+  .ec .combo input, .ec input { padding: 8px; font-size: 16px; }
+  .mleft { background: #f4f6f9; border-radius: 10px; padding: 12px 14px; margin-top: 14px; display: grid; gap: 8px; }
+  .rad { display: flex; align-items: center; gap: 8px; font-weight: 500; margin: 0; flex-wrap: wrap; }
+  .rad input[type=radio] { width: auto; } .rad input[type=date] { width: auto; padding: 6px 8px; }
+  .mf { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  .mbtn { border: 0; border-radius: 12px; padding: 13px 26px; font-weight: 700; font-size: 17px; }
+  .mbtn.ghost { background: #f0efea; color: #333; } .mbtn.go { background: #1f7a3a; color: #fff; min-width: 140px; }
+  @media (max-width: 560px) { .wrow { grid-template-columns: 1fr 80px 64px 34px; } .wrow > .wo { display: none; } .wrow.wh span:nth-child(2) { display: none; } .mbox { padding: 18px 16px; } }
   #login { max-width: 380px; margin: 60px auto; }
   .hide { display: none !important; }
 </style>
@@ -372,7 +422,7 @@ const netOf = l => {
   const t = Number(l.trays || 0), k = Number(l.tray_kg) > 0 ? Number(l.tray_kg) : TRAY;
   return l.sent_unit === 'kg' ? Math.round((Number(l.qty_sent) - t * k) * 1000) / 1000 : Number(l.qty_sent);
 };
-const P = { day: '', tab: 'todo', timer: null, dirty: false, open: null };
+const P = { day: '', tab: 'todo', timer: null, modal: false };
 function itemsShort(o, sent) {
   return o.lines.filter(l => !l.removed).map(l => {
     const qv = sent && l.qty_sent != null ? `${qf(l.qty_net ?? netOf(l))} ${U(l.sent_unit)}` : `${qf(l.qty_ordered)} ${U(l.unit)}`;
@@ -385,126 +435,134 @@ async function procScreen() {
   if (P.tab === 'todo') { qy = qy.eq('status', 'new'); if (d === today) qy = qy.lte('prep_date', today); else if (d) qy = qy.eq('prep_date', d); }
   else { qy = qy.eq('status', 'fulfilled'); if (d) qy = qy.eq('prep_date', d); }
   const orders = await q(qy);
-  orders.forEach(o => { o.lines = o.ord_lines.sort((a, b) => a.position - b.position); delete o.ord_lines;
-    o.lines.forEach(l => { if (!l.sent_unit && !l.added_by_ops) l.sent_unit = l.unit; l.trays = l.trays || ''; }); });
-  P.dirty = false;
+  orders.forEach(o => { o.lines = o.ord_lines.sort((a, b) => a.position - b.position); delete o.ord_lines; });
+  const chip = (v, t) => `<button data-day="${v}" class="${d === v ? 'on' : ''}">${t}</button>`;
   $('#view').innerHTML = `
-    <div class="pills">
-      <button data-day="" class="${d === '' ? 'on' : ''}">All</button>
-      <button data-day="${today}" class="${d === today ? 'on' : ''}">Today</button>
-      <button data-day="${isoDay(1)}" class="${d === isoDay(1) ? 'on' : ''}">Tomorrow</button>
-      <input type="date" id="p-day" value="${d}">
-      <span style="flex:1"></span>
-      <button data-tab="todo" class="${P.tab === 'todo' ? 'on' : ''}">To do</button>
-      <button data-tab="done" class="${P.tab === 'done' ? 'on' : ''}">Done</button>
-      <button id="p-ref">↻</button>
+    <div class="ptop">
+      <div class="seg"><button data-tab="todo" class="${P.tab === 'todo' ? 'on' : ''}">To do</button><button data-tab="done" class="${P.tab === 'done' ? 'on' : ''}">Done</button></div>
+      <div class="chips">${chip('', 'All')}${chip(today, 'Today')}${chip(isoDay(1), 'Tomorrow')}</div>
     </div>
-    <div class="olist" id="p-list"></div>`;
+    <div id="p-list"></div>`;
   document.querySelectorAll('[data-day]').forEach(b => b.onclick = () => { P.day = b.dataset.day; procScreen(); });
-  $('#p-day').onchange = e => { P.day = e.target.value; procScreen(); };
-  document.querySelectorAll('.pills [data-tab]').forEach(b => b.onclick = () => { P.tab = b.dataset.tab; P.open = null; procScreen(); });
-  $('#p-ref').onclick = () => procScreen();
+  document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { P.tab = b.dataset.tab; procScreen(); });
   const list = $('#p-list');
-  if (!orders.length) list.innerHTML = `<div class="orow"><b>${P.tab === 'todo' ? 'Nothing to prepare' : 'Nothing done yet'}${d ? ' – ' + ukDate(d) : ''}</b></div>`;
+  if (!orders.length) list.innerHTML = `<div class="empty">${P.tab === 'todo' ? 'Nothing to prepare' : 'Nothing done yet'} 👍</div>`;
   orders.forEach(o => {
     const late = P.tab === 'todo' && o.prep_date < today;
-    const done = o.lines.filter(l => !l.removed && isNum(l.qty_sent)).length, all = o.lines.filter(l => !l.removed).length;
-    const row = document.createElement('div'); row.className = 'orow click' + (P.open === o.id ? ' open' : '');
-    row.innerHTML = `<span class="d ${late ? 'late' : ''}">${late ? 'LATE ' : ''}${ukDate(o.prep_date)}</span>
-      <span class="c">${esc(cust(o.customer_id)?.name)}${o.notes ? ' 📝' : ''}</span>
-      <span class="i">${itemsShort(o, P.tab === 'done')}</span>
-      <span class="p">${P.tab === 'todo' ? `${done}/${all}` : '✓'}</span><span class="chev">${P.open === o.id ? '▲' : '▼'}</span>`;
-    list.appendChild(row);
-    const box = document.createElement('div'); box.className = 'oexp' + (P.open === o.id ? '' : ' hide'); list.appendChild(box);
-    if (P.open === o.id) (P.tab === 'todo' ? procEditor : procDone)(o, box);
-    row.onclick = () => {
-      if (P.dirty && P.open !== o.id && !confirm('You have unsaved weights on another order. Leave them?')) return;
-      P.open = P.open === o.id ? null : o.id; P.dirty = false; procScreen();
-    };
+    const c = document.createElement('button'); c.className = 'ocard' + (late ? ' late' : '');
+    c.innerHTML = `<div class="oc-top"><span class="oc-name">${esc(cust(o.customer_id)?.name)}</span>
+        <span class="oc-date">${late ? 'Late · ' : ''}${ukDate(o.prep_date)}</span></div>
+      <div class="oc-items">${itemsShort(o, P.tab === 'done')}</div>
+      ${o.notes ? `<div class="oc-note">${esc(o.notes)}</div>` : ''}`;
+    c.onclick = () => (P.tab === 'todo' ? openWeigh : openDone)(o);
+    list.appendChild(c);
   });
   clearInterval(P.timer);
-  P.timer = setInterval(() => { if (!P.dirty && cur === 'proc' && !document.activeElement?.matches('input')) procScreen(); }, 90000);
+  P.timer = setInterval(() => { if (!P.modal && cur === 'proc') procScreen(); }, 60000);
 }
-function procEditor(o, el) {
+function modal(html) {
+  const m = document.createElement('div'); m.className = 'mback';
+  m.innerHTML = `<div class="mbox">${html}</div>`;
+  document.body.appendChild(m); P.modal = true;
+  const close = () => { m.remove(); P.modal = false; };
+  m.onclick = e => { if (e.target === m) close(); };
+  return { m, close };
+}
+function openWeigh(o) {
+  const lines = o.lines.filter(l => !(l.removed && l.moved_to));
+  lines.forEach(l => { l.w = l.qty_sent != null ? qf(l.qty_sent) : ''; l.t = String(l.trays || 0); l.mode = l.removed ? 'deleted' : null; l.newItem = l.item_id; });
+  const opts = v => Array.from({ length: 11 }, (_, i) => `<option ${String(i) === v ? 'selected' : ''}>${i}</option>`).join('');
+  const { m, close } = modal(`
+    <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivery ${ukDate(o.delivery_date)}</div></div>
+      <button class="mx" title="Close">✕</button></div>
+    ${o.notes ? `<div class="mnote">${esc(o.notes)}</div>` : ''}
+    <div class="wl"></div>
+    <div class="mf"><button class="mbtn ghost" data-c>Cancel</button><button class="mbtn go" data-d>Done</button></div>`);
+  const wl = m.querySelector('.wl');
   function draw() {
-    el.innerHTML = `
-      <div class="muted" style="margin-bottom:6px">#${o.id} · deliver ${ukDate(o.delivery_date)}</div>
-      ${o.notes ? `<div class="note">📝 ${esc(o.notes)}</div>` : ''}
-      ${o.lines.map((l, ix) => {
-        const n = netOf(l);
-        return `<div class="pline ${l.removed ? 'off' : ''}">
-        <div class="nm">${esc(item(l.item_id)?.name)}${l.added_by_ops ? '<span class="tag">added</span>' : ''}${l.moved_to ? `<span class="tag">→ #${l.moved_to}</span>` : ''}
-          <span class="ord">${l.added_by_ops ? 'Not on the order' : `Ordered ${qf(l.qty_ordered)} ${U(l.unit)}`}</span></div>
-        ${l.removed ? '' : `
-          <input class="sent" data-ix="${ix}" inputmode="decimal" placeholder="${l.sent_unit === 'units' ? 'Qty' : 'Weight'}" value="${esc(qf(l.qty_sent))}">
-          ${tog(l.sent_unit, `data-ix="${ix}"`)}
-          ${l.sent_unit === 'kg' ? `<label class="tr">Trays <input class="trays" data-ix="${ix}" inputmode="numeric" value="${esc(l.trays || '')}" placeholder="0"></label>
-            <span class="net" data-net="${ix}">${n != null && Number(l.trays) > 0 ? '= ' + qf(n) + ' kg' : ''}</span>` : ''}`}
-        <span class="lbtns">
-          ${l.removed && !l.later ? `<button class="notsent" data-ns="${ix}">Put back</button>` : ''}
-          ${!l.removed ? `<button class="notsent" data-ns="${ix}">Not sent</button>` : ''}
-          ${!l.added_by_ops && !l.moved_to ? `<button class="notsent" data-lt="${ix}">${l.later ? 'Cancel later' : 'Later…'}</button>` : ''}
-        </span>
-        ${l.later ? `<div class="later">Send <input data-lq="${ix}" inputmode="decimal" value="${esc(l.later_qty)}" style="width:90px"> ${U(l.unit || l.sent_unit)} on <input type="date" data-ld="${ix}" value="${esc(l.later_date)}" style="width:auto"> <span class="muted">→ makes a new order</span></div>` : ''}
-      </div>`; }).join('')}
-      <div class="pfoot">
-        <div class="add"></div>
-        <button class="btn" data-save>Save for later</button>
-        <button class="big" data-done>✓ Done</button>
-      </div>`;
-    const ins = [...el.querySelectorAll('input.sent, input.trays')];
-    ins.forEach(i => i.onkeydown = e => { if (e.key === 'Enter') { const n = ins[ins.indexOf(i) + 1]; n ? n.focus() : i.blur(); } });
-    const showNet = ix => { const l = o.lines[ix], s = el.querySelector(`[data-net="${ix}"]`), n = netOf(l); if (s) s.textContent = n != null && Number(l.trays) > 0 ? '= ' + qf(n) + ' kg' : ''; };
-    el.querySelectorAll('input.sent').forEach(i => i.oninput = () => { o.lines[i.dataset.ix].qty_sent = i.value.trim(); P.dirty = true; showNet(i.dataset.ix); });
-    el.querySelectorAll('input.trays').forEach(i => i.oninput = () => { o.lines[i.dataset.ix].trays = i.value.trim(); P.dirty = true; showNet(i.dataset.ix); });
-    el.querySelectorAll('.tog button').forEach(b => b.onclick = () => { o.lines[b.dataset.ix].sent_unit = b.dataset.u; P.dirty = true; draw(); });
-    el.querySelectorAll('[data-ns]').forEach(b => b.onclick = () => { const l = o.lines[b.dataset.ns]; l.removed = !l.removed; P.dirty = true; draw(); });
-    el.querySelectorAll('[data-lt]').forEach(b => b.onclick = () => {
-      const l = o.lines[b.dataset.lt]; P.dirty = true;
-      if (l.later) { l.later = false; l.removed = l._wasRemoved; }
-      else { l.later = true; l._wasRemoved = l.removed; l.later_date = l.later_date || isoDay(1); l.later_qty = l.later_qty || qf(l.qty_ordered); if (!isNum(l.qty_sent)) l.removed = true; }
-      draw();
+    wl.innerHTML = `<div class="wrow wh"><span>Item</span><span>Ordered</span><span>Sent kg</span><span>Trays</span><span></span></div>` +
+      lines.map((l, ix) => {
+        const name = esc(item(l.newItem)?.name);
+        let right;
+        if (l.mode === 'deleted') right = `<span class="wstate">Deleted · <button class="lk" data-undo="${ix}">undo</button></span>`;
+        else if (l.mode === 'later') right = `<span class="wstate">New order <input type="date" class="ld" data-ld="${ix}" value="${esc(l.ld)}"> <button class="lk" data-undo="${ix}">undo</button></span>`;
+        else right = `<span><input class="wi" data-ix="${ix}" inputmode="decimal" value="${esc(l.w)}"></span><span><select class="ws" data-ix="${ix}">${opts(l.t)}</select></span>`;
+        return `<div class="wrow ${l.mode ? 'dim' : ''}">
+          <span class="wn">${l.mode === 'edit' ? `<span class="ec" data-ec="${ix}"></span>` : name}</span>
+          <span class="wo">${l.added_by_ops ? '—' : `${qf(l.qty_ordered)} ${U(l.unit)}`}</span>
+          ${right}
+          <span class="dots"><button class="db" data-m="${ix}">⋯</button>
+            <div class="dm hide" data-dm="${ix}">
+              <button data-a="edit" data-ix="${ix}">Edit</button>
+              <button data-a="later" data-ix="${ix}">Create new order</button>
+              <button data-a="del" data-ix="${ix}" class="danger">Delete</button>
+            </div></span>
+        </div>`;
+      }).join('');
+    const ins = [...wl.querySelectorAll('.wi')];
+    ins.forEach((i, k) => {
+      i.oninput = () => lines[i.dataset.ix].w = i.value.trim();
+      i.onkeydown = e => { if (e.key === 'Enter') { ins[k + 1] ? ins[k + 1].focus() : i.blur(); } };
     });
-    el.querySelectorAll('[data-lq]').forEach(i => i.oninput = () => o.lines[i.dataset.lq].later_qty = i.value.trim());
-    el.querySelectorAll('[data-ld]').forEach(i => i.oninput = () => o.lines[i.dataset.ld].later_date = i.value);
-    combo(el.querySelector('.add'), { list: () => items, value: null, clear: true, placeholder: '+ Add an item that wasn’t ordered…', addWord: 'item', onAdd: newItem,
-      onPick: id => { o.lines.push({ item_id: id, qty_sent: '', sent_unit: '', trays: '', added_by_ops: true, removed: false }); P.dirty = true; draw(); const s = el.querySelectorAll('input.sent'); s[s.length - 1]?.focus(); } });
-    el.querySelector('[data-save]').onclick = () => procSave(o, 'sent');
-    el.querySelector('[data-done]').onclick = () => procSave(o, 'fulfil');
-    el.querySelector('input.sent')?.focus();
+    wl.querySelectorAll('.ws').forEach(s => s.onchange = () => lines[s.dataset.ix].t = s.value);
+    wl.querySelectorAll('[data-m]').forEach(b => b.onclick = e => {
+      e.stopPropagation(); const dm = wl.querySelector(`[data-dm="${b.dataset.m}"]`), was = !dm.classList.contains('hide');
+      wl.querySelectorAll('.dm').forEach(x => x.classList.add('hide')); if (!was) dm.classList.remove('hide');
+    });
+    wl.querySelectorAll('[data-a]').forEach(b => b.onclick = () => {
+      const l = lines[b.dataset.ix];
+      if (b.dataset.a === 'del') l.mode = 'deleted';
+      if (b.dataset.a === 'later') { if (l.added_by_ops) return toast('This item was added here – use Delete instead', true); l.mode = 'later'; l.ld = l.ld || isoDay(1); }
+      if (b.dataset.a === 'edit') l.mode = 'edit';
+      draw();
+      if (b.dataset.a === 'edit') wl.querySelector(`[data-ec="${b.dataset.ix}"] input`)?.focus();
+    });
+    wl.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => { lines[b.dataset.undo].mode = null; draw(); });
+    wl.querySelectorAll('[data-ld]').forEach(i => i.oninput = () => lines[i.dataset.ld].ld = i.value);
+    wl.querySelectorAll('[data-ec]').forEach(el => {
+      const l = lines[el.dataset.ec];
+      combo(el, { list: () => items, value: l.newItem, placeholder: 'Type the item sent…', addWord: 'item', onAdd: newItem, onPick: id => { l.newItem = id; l.mode = null; draw(); } });
+    });
   }
   draw();
-}
-function procSave(o, action) {
-  safe(async () => {
-    for (const l of o.lines) {
-      const n = item(l.item_id)?.name;
-      if (l.later) {
-        if (!isNum(l.later_qty) || Number(l.later_qty) <= 0) throw new Error(`Enter how much ${n} to send later`);
-        if (!l.later_date) throw new Error(`Choose the day to send ${n}`);
-      }
-      if (l.removed) continue;
-      if (l.qty_sent !== '' && l.qty_sent != null && !isNum(l.qty_sent)) throw new Error(`"${l.qty_sent}" is not a number (${n})`);
-      if (l.trays !== '' && l.trays != null && !/^\d+$/.test(String(l.trays))) throw new Error(`Trays must be a whole number (${n})`);
-      if (action === 'fulfil') {
-        if (!isNum(l.qty_sent)) throw new Error(`Fill in what was sent for ${n} — or tap Not sent / Later`);
-        if (!l.sent_unit) throw new Error(`Tap Kilos or Units for ${n}`);
-      }
-      if (isNum(l.qty_sent) && netOf(l) <= 0) throw new Error(`Weight after trays is zero or less for ${n}`);
+  m.querySelector('.mbox').addEventListener('click', e => { if (!e.target.closest('.dots')) m.querySelectorAll('.dm').forEach(x => x.classList.add('hide')); });
+  m.querySelector('.mx').onclick = close; m.querySelector('[data-c]').onclick = close;
+  setTimeout(() => m.querySelector('.wi')?.focus(), 50);
+
+  m.querySelector('[data-d]').onclick = () => safe(async () => {
+    for (const l of lines) {
+      const n = item(l.newItem)?.name;
+      if (l.mode === 'edit') throw new Error('Finish choosing the item, or press Esc');
+      if (l.mode === 'later' && !l.ld) throw new Error(`Choose the day for the new order (${n})`);
+      if (l.mode) continue;
+      if (l.w === '') throw new Error(`Fill in the kg for ${n} — or use ⋯`);
+      if (!isNum(l.w)) throw new Error(`"${l.w}" is not a weight (${n})`);
+      if (Number(l.w) - Number(l.t) * TRAY <= 0) throw new Error(`${n}: weight is less than the trays`);
     }
-    const moved = o.lines.filter(l => l.later).length;
-    await q(sb.rpc('ord_save', { p: { id: o.id, action, lines: o.lines.map(l => ({ id: l.id, item_id: l.item_id, qty_sent: l.qty_sent, sent_unit: l.sent_unit,
-      trays: l.sent_unit === 'kg' ? l.trays : '', removed: !!l.removed, later_date: l.later ? l.later_date : '', later_qty: l.later ? l.later_qty : '' })) } }));
-    toast((action === 'fulfil' ? `✓ ${cust(o.customer_id)?.name} done` : 'Saved') + (moved ? ` · ${moved} item(s) moved to a new order` : ''));
-    P.dirty = false; if (action === 'fulfil') P.open = null; procScreen();
+    const payload = lines.map(l => {
+      const ok = !l.mode;
+      return { id: l.id, item_id: l.newItem, qty_sent: ok ? l.w : '', sent_unit: ok ? 'kg' : '', trays: ok ? l.t : '0', removed: !ok,
+        later_date: l.mode === 'later' ? l.ld : '', later_qty: l.mode === 'later' ? qf(l.qty_ordered) : '' };
+    });
+    await q(sb.rpc('ord_save', { p: { id: o.id, action: 'fulfil', lines: payload } }));
+    const moved = lines.filter(l => l.mode === 'later').length;
+    close(); toast(`✓ ${cust(o.customer_id)?.name} done` + (moved ? ` · ${moved} item${moved > 1 ? 's' : ''} moved to a new order` : ''));
+    procScreen();
   });
 }
-function procDone(o, el) {
-  el.innerHTML = `<div class="muted">#${o.id} · deliver ${ukDate(o.delivery_date)} · done by ${esc((o.fulfilled_by || '').split('@')[0])}</div>
-    <table style="margin:6px 0"><tbody>${o.lines.map(l => `<tr><td>${esc(item(l.item_id)?.name)}${l.moved_to ? ` <span class="tag">→ #${l.moved_to}</span>` : ''}</td>
-      <td class="num">${l.removed ? 'not sent' : `${qf(l.qty_sent)} ${U(l.sent_unit)}${l.trays > 0 ? ` − ${l.trays} tray${l.trays > 1 ? 's' : ''} = <b>${qf(l.qty_net)} kg</b>` : ''}`}</td></tr>`).join('')}</tbody></table>
-    <button class="btn" data-re>Reopen to change</button>`;
-  el.querySelector('[data-re]').onclick = () => safe(async () => { await q(sb.rpc('ord_save', { p: { id: o.id, action: 'unfulfil' } })); P.tab = 'todo'; procScreen(); });
+function openDone(o) {
+  const { m, close } = modal(`
+    <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivery ${ukDate(o.delivery_date)} · done by ${esc((o.fulfilled_by || '').split('@')[0])}</div></div>
+      <button class="mx">✕</button></div>
+    <div class="wl">
+      <div class="wrow wh"><span>Item</span><span>Ordered</span><span>Sent kg</span><span>Trays</span><span></span></div>
+      ${o.lines.map(l => `<div class="wrow"><span class="wn">${esc(item(l.item_id)?.name)}</span>
+        <span class="wo">${l.added_by_ops ? '—' : `${qf(l.qty_ordered)} ${U(l.unit)}`}</span>
+        <span>${l.removed ? (l.moved_to ? `→ #${l.moved_to}` : 'not sent') : qf(l.qty_sent)}</span><span>${l.removed ? '' : l.trays || 0}</span><span></span></div>`).join('')}
+    </div>
+    <div class="mf"><button class="mbtn ghost" data-re>Reopen</button><button class="mbtn go" data-c>Close</button></div>`);
+  m.querySelector('.mx').onclick = close; m.querySelector('[data-c]').onclick = close;
+  m.querySelector('[data-re]').onclick = () => safe(async () => { await q(sb.rpc('ord_save', { p: { id: o.id, action: 'unfulfil' } })); close(); P.tab = 'todo'; procScreen(); });
 }
 
 /* ================= INVOICING ================= */
