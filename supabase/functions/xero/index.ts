@@ -93,7 +93,7 @@ async function send(orderId: number, who: string) {
   if (!lines?.length) throw new Fail('No items on this order');
   const { data: prices } = await db.from('ord_line_prices').select('*').in('line_id', lines.map(l => l.id));
   const price = new Map((prices ?? []).map(p => [p.line_id, Number(p.price)]));
-  const { data: items } = await db.from('ord_items').select('id, name, xero_code').in('id', lines.map(l => l.item_id));
+  const { data: items } = await db.from('ord_items').select('id, name, xero_code, xero_tax_type, xero_account').in('id', lines.map(l => l.item_id));
   const item = new Map((items ?? []).map(i => [i.id, i]));
   const { data: cust } = await db.from('ord_customers').select('id, name, xero_contact_id').eq('id', o.customer_id).single();
   const { data: tx } = await db.from('ord_settings').select('value').eq('key', 'xero_tax_type').maybeSingle();
@@ -102,11 +102,12 @@ async function send(orderId: number, who: string) {
   const LineItems = lines.map(l => {
     const p = price.get(l.id), it = item.get(l.item_id)!;
     if (p == null) throw new Fail(`No price for ${it.name}`);
-    // Items with a Xero code: Xero fills the sales account and VAT from the item's own defaults.
-    // Items without one (added in the app only): account 224 + zero-rated.
-    return it.xero_code
-      ? { ItemCode: it.xero_code, Description: it.name, Quantity: Number(l.qty_net), UnitAmount: p }
-      : { Description: it.name, Quantity: Number(l.qty_net), UnitAmount: p, AccountCode: SALES_ACCOUNT, TaxType: taxType };
+    // Xero's API does not copy an item's VAT onto the line (it uses the account's), so send the item's own
+    // sales account + VAT rate (saved at sync). Items without them: account 224 + zero-rated.
+    const li: Record<string, unknown> = { Description: it.name, Quantity: Number(l.qty_net), UnitAmount: p,
+      AccountCode: it.xero_account || SALES_ACCOUNT, TaxType: it.xero_tax_type || taxType };
+    if (it.xero_code) li.ItemCode = it.xero_code;
+    return li;
   });
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
   const inv = {
@@ -167,7 +168,7 @@ async function sync(who: string) {
   let itemsResp;
   try { itemsResp = await xero('Items'); }
   catch (e) { await saveStamp(who, res, 'Items: ' + (e as Error).message); throw new Fail('Customers synced, but Xero would not give the item list – click Reconnect in Settings (Xero needs to approve reading items), then Sync again.'); }
-  const xi = (itemsResp.Items ?? []).filter((i: { IsSold?: boolean }) => i.IsSold !== false) as { ItemID: string; Code: string; Name?: string }[];
+  const xi = (itemsResp.Items ?? []).filter((i: { IsSold?: boolean }) => i.IsSold !== false) as { ItemID: string; Code: string; Name?: string; SalesDetails?: { TaxType?: string; AccountCode?: string } }[];
   const { data: appI } = await db.from('ord_items').select('*');
   const iById = new Map((appI ?? []).filter(i => i.xero_item_id).map(i => [i.xero_item_id, i]));
   const iByCode = new Map((appI ?? []).filter(i => !i.xero_item_id && i.xero_code).map(i => [i.xero_code, i]));
@@ -176,14 +177,15 @@ async function sync(who: string) {
   const newI: Record<string, unknown>[] = [];
   for (const x of xi) {
     const name = (x.Name || x.Code).trim();
+    const tax = x.SalesDetails?.TaxType || null, acct = x.SalesDetails?.AccountCode || null;
     const row = iById.get(x.ItemID) ?? iByCode.get(x.Code) ?? iUnlinked.get(norm(name));
     if (row) {
       seenI.add(row.id); iByCode.delete(x.Code); iUnlinked.delete(norm(row.name));
-      if (row.name !== name || row.xero_code !== x.Code || row.xero_item_id !== x.ItemID || !row.active || row.orphaned) {
-        await db.from('ord_items').update({ name, xero_code: x.Code, xero_item_id: x.ItemID, active: true, orphaned: false }).eq('id', row.id);
+      if (row.name !== name || row.xero_code !== x.Code || row.xero_item_id !== x.ItemID || !row.active || row.orphaned || row.xero_tax_type !== tax || row.xero_account !== acct) {
+        await db.from('ord_items').update({ name, xero_code: x.Code, xero_item_id: x.ItemID, xero_tax_type: tax, xero_account: acct, active: true, orphaned: false }).eq('id', row.id);
         res.items_updated++;
       }
-    } else newI.push({ name, xero_code: x.Code, xero_item_id: x.ItemID, created_by: 'xero sync' });
+    } else newI.push({ name, xero_code: x.Code, xero_item_id: x.ItemID, xero_tax_type: tax, xero_account: acct, created_by: 'xero sync' });
   }
   if (newI.length) { const { error } = await db.from('ord_items').insert(newI); if (error) throw new Fail(`Saving items: ${error.message}`); res.items_added = newI.length; }
   const goneI = (appI ?? []).filter(i => !seenI.has(i.id) && (i.xero_code || i.xero_item_id));   // app-only items are kept
