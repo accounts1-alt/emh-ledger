@@ -79,6 +79,25 @@
   .last { display: inline-block; font-size: 13px; background: #eef4ec; border: 1px solid #b9d4b4; border-radius: 6px; padding: 2px 8px; margin-top: 3px; }
   input.price { width: 110px; text-align: right; }
   .total { font-size: 21px; font-weight: 800; text-align: right; margin-top: 8px; }
+  .olist { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+  .orow { display: flex; align-items: center; gap: 14px; padding: 13px 16px; border-bottom: 1px solid #ecece6; }
+  .orow.click { cursor: pointer; } .orow.click:hover { background: #f8f6ee; } .orow.open { background: #eef3f8; }
+  .orow .d { flex: 0 0 110px; color: #555; font-size: 15px; } .orow .d.late { color: #b3261e; font-weight: 700; }
+  .orow .c { flex: 0 0 210px; font-weight: 700; font-size: 18px; }
+  .orow .i { flex: 1 1 auto; font-size: 15px; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .orow .p { flex: none; font-weight: 700; } .orow .chev { flex: none; color: #888; width: 18px; }
+  .oexp { padding: 10px 16px 16px; background: #fbfbf8; border-bottom: 2px solid #c9d6e3; }
+  .oexp .note { background: #fff6cf; border-radius: 8px; padding: 8px 12px; font-weight: 600; margin-bottom: 6px; }
+  .oexp .pline { padding: 10px 0; }
+  .oexp .pline .nm { font-size: 18px; }
+  .oexp .pline input.sent { width: 110px; font-size: 20px; }
+  .oexp .pfoot { padding: 12px 0 0; }
+  label.tr { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: 600; }
+  input.trays { width: 64px; text-align: right; font-size: 18px; padding: 8px; }
+  .net { font-weight: 700; color: #14532d; min-width: 80px; }
+  .lbtns { display: flex; gap: 6px; }
+  .later { flex-basis: 100%; background: #eef3f8; border-radius: 8px; padding: 8px 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  @media (max-width: 700px) { .orow { flex-wrap: wrap; gap: 4px 12px; } .orow .c { flex: 1 1 auto; } .orow .i { flex-basis: 100%; order: 5; white-space: normal; } }
   #login { max-width: 380px; margin: 60px auto; }
   .hide { display: none !important; }
 </style>
@@ -194,7 +213,7 @@ const tog = (val, attrs) => `<span class="tog ${val ? '' : 'need'}">${['kg', 'un
 
 /* ================= login & navigation ================= */
 const TABS = {
-  admin: [['new', '+ New order'], ['proc', 'Processing'], ['inv', 'Invoicing'], ['all', 'All orders'], ['setup', 'Customers & items'], ['staff', 'Staff']],
+  admin: [['new', '+ New order'], ['proc', 'Processing'], ['inv', 'Invoicing'], ['all', 'All orders'], ['setup', 'Settings'], ['staff', 'Staff']],
   processing: [['proc', 'Orders to prepare']],
   invoicing: [['inv', 'Invoicing']],
 };
@@ -208,6 +227,7 @@ async function boot() {
     $('#nav').innerHTML = TABS[role].map(([k, t]) => `<button data-tab="${k}">${t}</button>`).join('');
     document.querySelectorAll('#nav button').forEach(b => b.onclick = () => go(b.dataset.tab));
     await loadLists();
+    const ts = await q(sb.from('ord_settings').select('*').eq('key', 'tray_kg')); if (ts[0]) TRAY = Number(ts[0].value);
     const want = location.hash.slice(1);
     go(want && allowed(want) ? want : TABS[role][0][0]);
   });
@@ -252,7 +272,7 @@ async function orderScreen(id) {
     o.prices = await pricesFor(o.lines.map(l => l.id));
     O = o;
   } else {
-    O = { id: null, customer_id: null, delivery_date: isoDay(1), prep_date: isoDay(0), notes: '', status: 'new', lines: [{ item_id: null, qty_ordered: '', unit: '' }], prices: {} };
+    O = { id: null, customer_id: null, delivery_date: isoDay(0), prep_date: isoDay(0), notes: '', status: 'new', lines: [{ item_id: null, qty_ordered: '', unit: '' }], prices: {} };
   }
   drawOrder();
 }
@@ -318,9 +338,9 @@ function sentSummary(o) {
     const p = o.prices[l.id];
     return `<tr><td>${esc(item(l.item_id)?.name)}${l.added_by_ops ? '<span class="tag">added</span>' : ''}${l.removed ? '<span class="tag">not sent</span>' : ''}</td>
       <td class="num">${l.added_by_ops ? '—' : qf(l.qty_ordered) + ' ' + U(l.unit)}</td>
-      <td class="num">${l.removed ? '—' : qf(l.qty_sent) + ' ' + U(l.sent_unit)}</td>
+      <td class="num">${l.removed ? (l.moved_to ? '→ #' + l.moved_to : '—') : qf(l.qty_net) + ' ' + U(l.sent_unit) + (l.trays > 0 ? ` <span class="muted">(${qf(l.qty_sent)} − ${l.trays} trays)</span>` : '')}</td>
       ${showP ? `<td class="num">${p != null ? money(p) + '/' + per(l.sent_unit) : '—'}</td>
-      <td class="num">${!l.removed && p != null && isNum(l.qty_sent) ? money(l.qty_sent * p) : ''}</td>` : ''}</tr>`;
+      <td class="num">${!l.removed && p != null && l.qty_net != null ? money(l.qty_net * p) : ''}</td>` : ''}</tr>`;
   }).join('');
   return `<div class="card"><h2>What was sent</h2><table><thead><tr><th>Item</th><th class="num">Ordered</th><th class="num">Sent</th>${showP ? '<th class="num">Price</th><th class="num">Total</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -346,176 +366,221 @@ function saveOrder() {
 }
 
 /* ================= PROCESSING ================= */
-const P = { day: '', tab: 'todo', timer: null, dirty: false };
+let TRAY = 1.65;
+const netOf = l => {
+  if (!isNum(l.qty_sent)) return null;
+  const t = Number(l.trays || 0), k = Number(l.tray_kg) > 0 ? Number(l.tray_kg) : TRAY;
+  return l.sent_unit === 'kg' ? Math.round((Number(l.qty_sent) - t * k) * 1000) / 1000 : Number(l.qty_sent);
+};
+const P = { day: '', tab: 'todo', timer: null, dirty: false, open: null };
+function itemsShort(o, sent) {
+  return o.lines.filter(l => !l.removed).map(l => {
+    const qv = sent && l.qty_sent != null ? `${qf(l.qty_net ?? netOf(l))} ${U(l.sent_unit)}` : `${qf(l.qty_ordered)} ${U(l.unit)}`;
+    return `${esc(item(l.item_id)?.name)} <b>${qv}</b>`;
+  }).join(', ');
+}
 async function procScreen() {
-  const today = isoDay(0);
-  if (!P.day) P.day = today;
+  const today = isoDay(0), d = P.day;
   let qy = sb.from('ord_orders').select('*, ord_lines(*)').order('prep_date').order('delivery_date').order('id');
-  if (P.tab === 'todo') { qy = qy.eq('status', 'new'); qy = P.day === today ? qy.lte('prep_date', today) : qy.eq('prep_date', P.day); }
-  else qy = qy.neq('status', 'new').eq('prep_date', P.day);
+  if (P.tab === 'todo') { qy = qy.eq('status', 'new'); if (d === today) qy = qy.lte('prep_date', today); else if (d) qy = qy.eq('prep_date', d); }
+  else { qy = qy.eq('status', 'fulfilled'); if (d) qy = qy.eq('prep_date', d); }
   const orders = await q(qy);
-  orders.forEach(o => { o.lines = o.ord_lines.sort((a, b) => a.position - b.position); delete o.ord_lines; o.lines.forEach(l => { if (!l.sent_unit && !l.added_by_ops) l.sent_unit = l.unit; }); });
+  orders.forEach(o => { o.lines = o.ord_lines.sort((a, b) => a.position - b.position); delete o.ord_lines;
+    o.lines.forEach(l => { if (!l.sent_unit && !l.added_by_ops) l.sent_unit = l.unit; l.trays = l.trays || ''; }); });
   P.dirty = false;
-  const d = P.day;
   $('#view').innerHTML = `
     <div class="pills">
+      <button data-day="" class="${d === '' ? 'on' : ''}">All</button>
       <button data-day="${today}" class="${d === today ? 'on' : ''}">Today</button>
       <button data-day="${isoDay(1)}" class="${d === isoDay(1) ? 'on' : ''}">Tomorrow</button>
       <input type="date" id="p-day" value="${d}">
       <span style="flex:1"></span>
       <button data-tab="todo" class="${P.tab === 'todo' ? 'on' : ''}">To do</button>
       <button data-tab="done" class="${P.tab === 'done' ? 'on' : ''}">Done</button>
-      <button id="p-ref">↻ Refresh</button>
+      <button id="p-ref">↻</button>
     </div>
-    <div id="p-list"></div>`;
+    <div class="olist" id="p-list"></div>`;
   document.querySelectorAll('[data-day]').forEach(b => b.onclick = () => { P.day = b.dataset.day; procScreen(); });
-  $('#p-day').onchange = e => { P.day = e.target.value || today; procScreen(); };
-  document.querySelectorAll('.pills [data-tab]').forEach(b => b.onclick = () => { P.tab = b.dataset.tab; procScreen(); });
+  $('#p-day').onchange = e => { P.day = e.target.value; procScreen(); };
+  document.querySelectorAll('.pills [data-tab]').forEach(b => b.onclick = () => { P.tab = b.dataset.tab; P.open = null; procScreen(); });
   $('#p-ref').onclick = () => procScreen();
   const list = $('#p-list');
-  if (!orders.length) list.innerHTML = `<div class="card"><h2>${P.tab === 'todo' ? 'Nothing to prepare' : 'Nothing done yet'} — ${ukDate(d)}</h2></div>`;
-  orders.forEach(o => list.appendChild(P.tab === 'todo' ? procCard(o) : doneCard(o)));
+  if (!orders.length) list.innerHTML = `<div class="orow"><b>${P.tab === 'todo' ? 'Nothing to prepare' : 'Nothing done yet'}${d ? ' – ' + ukDate(d) : ''}</b></div>`;
+  orders.forEach(o => {
+    const late = P.tab === 'todo' && o.prep_date < today;
+    const done = o.lines.filter(l => !l.removed && isNum(l.qty_sent)).length, all = o.lines.filter(l => !l.removed).length;
+    const row = document.createElement('div'); row.className = 'orow click' + (P.open === o.id ? ' open' : '');
+    row.innerHTML = `<span class="d ${late ? 'late' : ''}">${late ? 'LATE ' : ''}${ukDate(o.prep_date)}</span>
+      <span class="c">${esc(cust(o.customer_id)?.name)}${o.notes ? ' 📝' : ''}</span>
+      <span class="i">${itemsShort(o, P.tab === 'done')}</span>
+      <span class="p">${P.tab === 'todo' ? `${done}/${all}` : '✓'}</span><span class="chev">${P.open === o.id ? '▲' : '▼'}</span>`;
+    list.appendChild(row);
+    const box = document.createElement('div'); box.className = 'oexp' + (P.open === o.id ? '' : ' hide'); list.appendChild(box);
+    if (P.open === o.id) (P.tab === 'todo' ? procEditor : procDone)(o, box);
+    row.onclick = () => {
+      if (P.dirty && P.open !== o.id && !confirm('You have unsaved weights on another order. Leave them?')) return;
+      P.open = P.open === o.id ? null : o.id; P.dirty = false; procScreen();
+    };
+  });
+  clearInterval(P.timer);
   P.timer = setInterval(() => { if (!P.dirty && cur === 'proc' && !document.activeElement?.matches('input')) procScreen(); }, 90000);
 }
-function procCard(o) {
-  const el = document.createElement('div');
-  const late = o.prep_date < isoDay(0);
-  el.className = 'pcard' + (late ? ' late' : '');
+function procEditor(o, el) {
   function draw() {
     el.innerHTML = `
-      <div class="ph"><span class="cust">${esc(cust(o.customer_id)?.name)}</span>
-        <span class="muted">#${o.id} · deliver ${ukDate(o.delivery_date)}${late ? ` · <b style="color:#b3261e">LATE – was due ${ukDate(o.prep_date)}</b>` : ''}</span></div>
+      <div class="muted" style="margin-bottom:6px">#${o.id} · deliver ${ukDate(o.delivery_date)}</div>
       ${o.notes ? `<div class="note">📝 ${esc(o.notes)}</div>` : ''}
-      ${o.lines.map((l, ix) => `<div class="pline ${l.removed ? 'off' : ''}">
-        <div class="nm">${esc(item(l.item_id)?.name)}${l.added_by_ops ? '<span class="tag">added</span>' : ''}
-          <span class="ord">${l.added_by_ops ? 'Not on the order' : `Ordered: <b>${qf(l.qty_ordered)} ${U(l.unit)}</b>`}</span></div>
-        ${l.removed ? '' : `<input class="sent" data-ix="${ix}" inputmode="decimal" placeholder="Sent" value="${esc(qf(l.qty_sent))}">${tog(l.sent_unit, `data-ix="${ix}"`)}`}
-        <button class="notsent" data-ns="${ix}">${l.removed ? 'Put back' : 'Not sent'}</button>
-      </div>`).join('')}
+      ${o.lines.map((l, ix) => {
+        const n = netOf(l);
+        return `<div class="pline ${l.removed ? 'off' : ''}">
+        <div class="nm">${esc(item(l.item_id)?.name)}${l.added_by_ops ? '<span class="tag">added</span>' : ''}${l.moved_to ? `<span class="tag">→ #${l.moved_to}</span>` : ''}
+          <span class="ord">${l.added_by_ops ? 'Not on the order' : `Ordered ${qf(l.qty_ordered)} ${U(l.unit)}`}</span></div>
+        ${l.removed ? '' : `
+          <input class="sent" data-ix="${ix}" inputmode="decimal" placeholder="${l.sent_unit === 'units' ? 'Qty' : 'Weight'}" value="${esc(qf(l.qty_sent))}">
+          ${tog(l.sent_unit, `data-ix="${ix}"`)}
+          ${l.sent_unit === 'kg' ? `<label class="tr">Trays <input class="trays" data-ix="${ix}" inputmode="numeric" value="${esc(l.trays || '')}" placeholder="0"></label>
+            <span class="net" data-net="${ix}">${n != null && Number(l.trays) > 0 ? '= ' + qf(n) + ' kg' : ''}</span>` : ''}`}
+        <span class="lbtns">
+          ${l.removed && !l.later ? `<button class="notsent" data-ns="${ix}">Put back</button>` : ''}
+          ${!l.removed ? `<button class="notsent" data-ns="${ix}">Not sent</button>` : ''}
+          ${!l.added_by_ops && !l.moved_to ? `<button class="notsent" data-lt="${ix}">${l.later ? 'Cancel later' : 'Later…'}</button>` : ''}
+        </span>
+        ${l.later ? `<div class="later">Send <input data-lq="${ix}" inputmode="decimal" value="${esc(l.later_qty)}" style="width:90px"> ${U(l.unit || l.sent_unit)} on <input type="date" data-ld="${ix}" value="${esc(l.later_date)}" style="width:auto"> <span class="muted">→ makes a new order</span></div>` : ''}
+      </div>`; }).join('')}
       <div class="pfoot">
         <div class="add"></div>
         <button class="btn" data-save>Save for later</button>
         <button class="big" data-done>✓ Done</button>
       </div>`;
-    el.querySelectorAll('input.sent').forEach(i => {
-      i.oninput = () => { o.lines[i.dataset.ix].qty_sent = i.value.trim(); P.dirty = true; };
-      i.onkeydown = e => { if (e.key === 'Enter') { const all = [...el.querySelectorAll('input.sent')]; const n = all[all.indexOf(i) + 1]; if (n) n.focus(); else i.blur(); } };
-    });
-    el.querySelectorAll('.tog button').forEach(b => b.onclick = () => {
-      o.lines[b.dataset.ix].sent_unit = b.dataset.u; P.dirty = true;
-      b.parentNode.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); b.parentNode.classList.remove('need');
-    });
+    const ins = [...el.querySelectorAll('input.sent, input.trays')];
+    ins.forEach(i => i.onkeydown = e => { if (e.key === 'Enter') { const n = ins[ins.indexOf(i) + 1]; n ? n.focus() : i.blur(); } });
+    const showNet = ix => { const l = o.lines[ix], s = el.querySelector(`[data-net="${ix}"]`), n = netOf(l); if (s) s.textContent = n != null && Number(l.trays) > 0 ? '= ' + qf(n) + ' kg' : ''; };
+    el.querySelectorAll('input.sent').forEach(i => i.oninput = () => { o.lines[i.dataset.ix].qty_sent = i.value.trim(); P.dirty = true; showNet(i.dataset.ix); });
+    el.querySelectorAll('input.trays').forEach(i => i.oninput = () => { o.lines[i.dataset.ix].trays = i.value.trim(); P.dirty = true; showNet(i.dataset.ix); });
+    el.querySelectorAll('.tog button').forEach(b => b.onclick = () => { o.lines[b.dataset.ix].sent_unit = b.dataset.u; P.dirty = true; draw(); });
     el.querySelectorAll('[data-ns]').forEach(b => b.onclick = () => { const l = o.lines[b.dataset.ns]; l.removed = !l.removed; P.dirty = true; draw(); });
+    el.querySelectorAll('[data-lt]').forEach(b => b.onclick = () => {
+      const l = o.lines[b.dataset.lt]; P.dirty = true;
+      if (l.later) { l.later = false; l.removed = l._wasRemoved; }
+      else { l.later = true; l._wasRemoved = l.removed; l.later_date = l.later_date || isoDay(1); l.later_qty = l.later_qty || qf(l.qty_ordered); if (!isNum(l.qty_sent)) l.removed = true; }
+      draw();
+    });
+    el.querySelectorAll('[data-lq]').forEach(i => i.oninput = () => o.lines[i.dataset.lq].later_qty = i.value.trim());
+    el.querySelectorAll('[data-ld]').forEach(i => i.oninput = () => o.lines[i.dataset.ld].later_date = i.value);
     combo(el.querySelector('.add'), { list: () => items, value: null, clear: true, placeholder: '+ Add an item that wasn’t ordered…', addWord: 'item', onAdd: newItem,
-      onPick: id => { o.lines.push({ item_id: id, qty_sent: '', sent_unit: '', added_by_ops: true, removed: false }); P.dirty = true; draw(); const s = el.querySelectorAll('input.sent'); s[s.length - 1]?.focus(); } });
+      onPick: id => { o.lines.push({ item_id: id, qty_sent: '', sent_unit: '', trays: '', added_by_ops: true, removed: false }); P.dirty = true; draw(); const s = el.querySelectorAll('input.sent'); s[s.length - 1]?.focus(); } });
     el.querySelector('[data-save]').onclick = () => procSave(o, 'sent');
     el.querySelector('[data-done]').onclick = () => procSave(o, 'fulfil');
+    el.querySelector('input.sent')?.focus();
   }
   draw();
-  return el;
 }
 function procSave(o, action) {
   safe(async () => {
     for (const l of o.lines) {
-      if (l.removed) continue;
       const n = item(l.item_id)?.name;
+      if (l.later) {
+        if (!isNum(l.later_qty) || Number(l.later_qty) <= 0) throw new Error(`Enter how much ${n} to send later`);
+        if (!l.later_date) throw new Error(`Choose the day to send ${n}`);
+      }
+      if (l.removed) continue;
       if (l.qty_sent !== '' && l.qty_sent != null && !isNum(l.qty_sent)) throw new Error(`"${l.qty_sent}" is not a number (${n})`);
+      if (l.trays !== '' && l.trays != null && !/^\d+$/.test(String(l.trays))) throw new Error(`Trays must be a whole number (${n})`);
       if (action === 'fulfil') {
-        if (!isNum(l.qty_sent)) throw new Error(`Fill in what was sent for ${n} — or tap Not sent`);
+        if (!isNum(l.qty_sent)) throw new Error(`Fill in what was sent for ${n} — or tap Not sent / Later`);
         if (!l.sent_unit) throw new Error(`Tap Kilos or Units for ${n}`);
       }
+      if (isNum(l.qty_sent) && netOf(l) <= 0) throw new Error(`Weight after trays is zero or less for ${n}`);
     }
-    await q(sb.rpc('ord_save', { p: { id: o.id, action, lines: o.lines.map(l => ({ id: l.id, item_id: l.item_id, qty_sent: l.qty_sent, sent_unit: l.sent_unit, removed: !!l.removed })) } }));
-    toast(action === 'fulfil' ? `✓ ${cust(o.customer_id)?.name} done` : 'Saved');
-    P.dirty = false; procScreen();
+    const moved = o.lines.filter(l => l.later).length;
+    await q(sb.rpc('ord_save', { p: { id: o.id, action, lines: o.lines.map(l => ({ id: l.id, item_id: l.item_id, qty_sent: l.qty_sent, sent_unit: l.sent_unit,
+      trays: l.sent_unit === 'kg' ? l.trays : '', removed: !!l.removed, later_date: l.later ? l.later_date : '', later_qty: l.later ? l.later_qty : '' })) } }));
+    toast((action === 'fulfil' ? `✓ ${cust(o.customer_id)?.name} done` : 'Saved') + (moved ? ` · ${moved} item(s) moved to a new order` : ''));
+    P.dirty = false; if (action === 'fulfil') P.open = null; procScreen();
   });
 }
-function doneCard(o) {
-  const el = document.createElement('div'); el.className = 'pcard'; el.style.borderLeftColor = '#1f7a3a';
-  el.innerHTML = `<div class="ph"><span class="cust">${esc(cust(o.customer_id)?.name)}</span><span class="muted">#${o.id} · deliver ${ukDate(o.delivery_date)} · done by ${esc((o.fulfilled_by || '').split('@')[0])}</span></div>
-    <div style="padding:4px 16px 12px">${o.lines.filter(l => !l.removed).map(l => `${esc(item(l.item_id)?.name)} <b>${qf(l.qty_sent)} ${U(l.sent_unit)}</b>`).join(' · ')}</div>
-    ${o.status === 'fulfilled' ? '<div class="pfoot"><button class="btn" data-re>Reopen to change</button></div>' : '<div class="pfoot muted">Already invoiced – ask the office to change it</div>'}`;
-  const re = el.querySelector('[data-re]');
-  if (re) re.onclick = () => safe(async () => { await q(sb.rpc('ord_save', { p: { id: o.id, action: 'unfulfil' } })); P.tab = 'todo'; P.day = o.prep_date < isoDay(0) ? isoDay(0) : o.prep_date; procScreen(); });
-  return el;
+function procDone(o, el) {
+  el.innerHTML = `<div class="muted">#${o.id} · deliver ${ukDate(o.delivery_date)} · done by ${esc((o.fulfilled_by || '').split('@')[0])}</div>
+    <table style="margin:6px 0"><tbody>${o.lines.map(l => `<tr><td>${esc(item(l.item_id)?.name)}${l.moved_to ? ` <span class="tag">→ #${l.moved_to}</span>` : ''}</td>
+      <td class="num">${l.removed ? 'not sent' : `${qf(l.qty_sent)} ${U(l.sent_unit)}${l.trays > 0 ? ` − ${l.trays} tray${l.trays > 1 ? 's' : ''} = <b>${qf(l.qty_net)} kg</b>` : ''}`}</td></tr>`).join('')}</tbody></table>
+    <button class="btn" data-re>Reopen to change</button>`;
+  el.querySelector('[data-re]').onclick = () => safe(async () => { await q(sb.rpc('ord_save', { p: { id: o.id, action: 'unfulfil' } })); P.tab = 'todo'; procScreen(); });
 }
 
 /* ================= INVOICING ================= */
-const I = { tab: 'todo' };
+const I = { tab: 'todo', open: null };
 async function invScreen() {
   $('#view').innerHTML = `<div class="pills">
       <button data-t="todo" class="${I.tab === 'todo' ? 'on' : ''}">To invoice</button>
       <button data-t="done" class="${I.tab === 'done' ? 'on' : ''}">Invoiced</button>
-      <button data-t="waiting" class="${I.tab === 'waiting' ? 'on' : ''}">Not prepared yet</button></div><div id="i-list"></div>`;
-  document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; invScreen(); });
+      <button data-t="waiting" class="${I.tab === 'waiting' ? 'on' : ''}">Not prepared yet</button></div><div class="olist" id="i-list"></div>`;
+  document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; I.open = null; invScreen(); });
   const status = { todo: 'fulfilled', done: 'invoiced', waiting: 'new' }[I.tab];
   let qy = sb.from('ord_orders').select('*, ord_lines(*)').eq('status', status);
   qy = I.tab === 'done' ? qy.order('invoiced_at', { ascending: false }).limit(200) : qy.order('delivery_date').order('id');
   const orders = await q(qy);
   orders.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position); delete o.ord_lines; });
   const list = $('#i-list');
-  if (!orders.length) { list.innerHTML = `<div class="card"><h2>Nothing here</h2></div>`; return; }
-
-  if (I.tab === 'waiting') {
-    list.innerHTML = `<div class="card"><p class="muted">Not prepared yet, so nothing to invoice.</p><table><thead><tr><th>#</th><th>Delivery</th><th>Customer</th></tr></thead><tbody>${orders.map(o => `<tr><td>#${o.id}</td><td>${ukDate(o.delivery_date)}</td><td>${esc(cust(o.customer_id)?.name)}</td></tr>`).join('')}</tbody></table></div>`;
-    return;
-  }
-  const prices = await pricesFor(orders.flatMap(o => o.lines.map(l => l.id)));
-  if (I.tab === 'done') {
-    list.innerHTML = `<div class="card"><table><thead><tr><th>#</th><th>Delivery</th><th>Customer</th><th class="num">Total</th><th>Invoice no.</th><th></th></tr></thead><tbody>${orders.map(o => {
-      const t = o.lines.reduce((s, l) => s + (prices[l.id] != null ? Number(l.qty_sent) * prices[l.id] : 0), 0);
-      return `<tr><td>#${o.id}</td><td>${ukDate(o.delivery_date)}</td><td>${esc(cust(o.customer_id)?.name)}</td><td class="num">${money(t)}</td><td>${esc(o.invoice_number || '')}</td>
-        <td class="num"><button class="link" data-un="${o.id}">Undo invoiced</button></td></tr>`; }).join('')}</tbody></table></div>`;
-    document.querySelectorAll('[data-un]').forEach(b => b.onclick = () => safe(async () => {
-      if (!confirm('Undo invoiced for #' + b.dataset.un + '? (Fix the invoice in Xero too if needed.)')) return;
-      await q(sb.rpc('ord_save', { p: { id: Number(b.dataset.un), action: 'uninvoice' } })); toast('Moved back to To invoice'); invScreen();
-    }));
-    return;
-  }
-  const custIds = [...new Set(orders.map(o => o.customer_id))];
+  if (!orders.length) { list.innerHTML = `<div class="orow"><b>Nothing here</b></div>`; return; }
+  const prices = I.tab === 'waiting' ? {} : await pricesFor(orders.flatMap(o => o.lines.map(l => l.id)));
   const last = {};
-  (await q(sb.from('ord_last_prices').select('*').in('customer_id', custIds))).forEach(r => last[`${r.customer_id}|${r.item_id}|${r.unit}`] = r);
+  if (I.tab === 'todo') (await q(sb.from('ord_last_prices').select('*').in('customer_id', [...new Set(orders.map(o => o.customer_id))]))).forEach(r => last[`${r.customer_id}|${r.item_id}|${r.unit}`] = r);
   orders.forEach(o => o.lines.forEach(l => {
-    l.price = prices[l.id] ?? '';
-    l.last = last[`${o.customer_id}|${l.item_id}|${l.sent_unit}`];
-    if (l.price === '' && l.last) l.price = l.last.price;
+    l.price = prices[l.id] ?? ''; l.last = last[`${o.customer_id}|${l.item_id}|${l.sent_unit}`];
+    if (l.price === '' && l.last && I.tab === 'todo') l.price = l.last.price;
   }));
-  orders.forEach(o => list.appendChild(invCard(o)));
-}
-function invCard(o) {
-  const el = document.createElement('div'); el.className = 'card';
-  const lt = l => isNum(l.price) ? Math.round(Number(l.qty_sent) * Number(l.price) * 100) / 100 : null;
-  const tot = () => o.lines.reduce((s, l) => s + (lt(l) ?? 0), 0);
-  el.innerHTML = `<h2>${esc(cust(o.customer_id)?.name)} <span class="muted">#${o.id} · delivery ${ukDate(o.delivery_date)}</span></h2>
-    <table><thead><tr><th>Item</th><th class="num">Sent</th><th class="num">Price</th><th class="num">Total</th></tr></thead><tbody>
-    ${o.lines.map((l, ix) => `<tr><td>${esc(item(l.item_id)?.name)}</td><td class="num">${qf(l.qty_sent)} ${U(l.sent_unit)}</td>
-      <td class="num">£ <input class="price" inputmode="decimal" data-ix="${ix}" value="${esc(l.price)}"> /${per(l.sent_unit)}
-        ${l.last ? `<div><span class="last">Last invoiced ${money(l.last.price)}/${per(l.sent_unit)} · ${ukDate(l.last.delivery_date)}</span></div>` : '<div class="muted">first time – enter price</div>'}</td>
-      <td class="num" data-lt="${ix}">${money(lt(l))}</td></tr>`).join('')}
-    </tbody></table>
-    <div class="total" data-tot>Total: ${money(tot())}</div>
-    <div class="actions" style="justify-content:flex-end">
-      <button class="btn" data-sp>Save prices</button>
-      <input placeholder="Xero invoice no. (optional)" style="width:240px" data-inv>
-      <button class="big blue" data-mi>Mark invoiced</button>
-    </div>`;
-  el.querySelectorAll('input.price').forEach(i => i.oninput = () => {
-    const l = o.lines[i.dataset.ix]; l.price = i.value.trim();
-    el.querySelector(`[data-lt="${i.dataset.ix}"]`).textContent = money(lt(l));
-    el.querySelector('[data-tot]').textContent = 'Total: ' + money(tot());
-  });
-  const send = action => safe(async () => {
-    for (const l of o.lines) {
-      if (l.price !== '' && !isNum(l.price)) throw new Error(`"${l.price}" is not a price (${item(l.item_id)?.name})`);
-      if (action === 'invoice' && !isNum(l.price)) throw new Error(`Enter a price for ${item(l.item_id)?.name}`);
+  const lt = l => isNum(l.price) && l.qty_net != null ? Math.round(Number(l.qty_net) * Number(l.price) * 100) / 100 : null;
+  const tot = o => o.lines.reduce((s, l) => s + (lt(l) ?? 0), 0);
+  const missing = o => o.lines.some(l => !isNum(l.price));
+  orders.forEach(o => {
+    const row = document.createElement('div'); row.className = 'orow' + (I.tab !== 'waiting' ? ' click' : '') + (I.open === o.id ? ' open' : '');
+    row.innerHTML = `<span class="d">${ukDate(o.delivery_date)}</span><span class="c">${esc(cust(o.customer_id)?.name)}</span>
+      <span class="i">${I.tab === 'waiting' ? itemsShort(o, false) : `#${o.id} · ${o.lines.length} item${o.lines.length === 1 ? '' : 's'}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}`}</span>
+      <span class="p" data-rt="${o.id}">${I.tab === 'waiting' ? '' : money(tot(o)) + (I.tab === 'todo' && missing(o) ? ' <span class="tag">prices?</span>' : '')}</span>
+      <span class="chev">${I.tab === 'waiting' ? '' : I.open === o.id ? '▲' : '▼'}</span>`;
+    list.appendChild(row);
+    if (I.tab === 'waiting') return;
+    row.onclick = () => { I.open = I.open === o.id ? null : o.id; invScreen(); };
+    if (I.open !== o.id) return;
+    const el = document.createElement('div'); el.className = 'oexp'; list.appendChild(el);
+    const edit = I.tab === 'todo';
+    el.innerHTML = `<table><thead><tr><th>Item</th><th class="num">Net sent</th><th class="num">Price</th><th class="num">Total</th></tr></thead><tbody>
+      ${o.lines.map((l, ix) => `<tr><td>${esc(item(l.item_id)?.name)}</td>
+        <td class="num"><b>${qf(l.qty_net)} ${U(l.sent_unit)}</b>${l.trays > 0 ? `<div class="muted">${qf(l.qty_sent)} − ${l.trays} tray${l.trays > 1 ? 's' : ''}</div>` : ''}</td>
+        <td class="num">${edit ? `£ <input class="price" inputmode="decimal" data-ix="${ix}" value="${esc(l.price)}"> /${per(l.sent_unit)}
+          <div class="muted">${l.last ? `last ${money(l.last.price)} · ${ukDate(l.last.delivery_date)}` : 'no previous price'}</div>` : money(l.price) + '/' + per(l.sent_unit)}</td>
+        <td class="num" data-lt="${ix}">${money(lt(l))}</td></tr>`).join('')}</tbody></table>
+      <div class="total" data-tot>Total: ${money(tot(o))}</div>
+      <div class="actions" style="justify-content:flex-end">${edit ? `
+        <button class="btn" data-sp>Save prices</button>
+        <input placeholder="Xero invoice no. (optional)" style="width:230px" data-inv>
+        <button class="big blue" data-mi>Mark invoiced</button>` : `<button class="btn" data-un>Undo invoiced</button>`}</div>`;
+    if (!edit) {
+      el.querySelector('[data-un]').onclick = () => safe(async () => {
+        if (!confirm('Undo invoiced for #' + o.id + '? (Fix the invoice in Xero too if needed.)')) return;
+        await q(sb.rpc('ord_save', { p: { id: o.id, action: 'uninvoice' } })); toast('Moved back to To invoice'); I.open = null; invScreen();
+      });
+      return;
     }
-    await q(sb.rpc('ord_save', { p: { id: o.id, action, invoice_number: el.querySelector('[data-inv]').value, lines: o.lines.map(l => ({ id: l.id, price: l.price })) } }));
-    toast(action === 'invoice' ? `#${o.id} marked invoiced` : 'Prices saved');
-    if (action === 'invoice') invScreen();
+    el.querySelectorAll('input.price').forEach(i => i.oninput = () => {
+      const l = o.lines[i.dataset.ix]; l.price = i.value.trim();
+      el.querySelector(`[data-lt="${i.dataset.ix}"]`).textContent = money(lt(l));
+      el.querySelector('[data-tot]').textContent = 'Total: ' + money(tot(o));
+      row.querySelector(`[data-rt="${o.id}"]`).innerHTML = money(tot(o)) + (missing(o) ? ' <span class="tag">prices?</span>' : '');
+    });
+    const send = action => safe(async () => {
+      for (const l of o.lines) {
+        if (l.price !== '' && !isNum(l.price)) throw new Error(`"${l.price}" is not a price (${item(l.item_id)?.name})`);
+        if (action === 'invoice' && !isNum(l.price)) throw new Error(`Enter a price for ${item(l.item_id)?.name}`);
+      }
+      await q(sb.rpc('ord_save', { p: { id: o.id, action, invoice_number: el.querySelector('[data-inv]').value, lines: o.lines.map(l => ({ id: l.id, price: l.price })) } }));
+      toast(action === 'invoice' ? `#${o.id} marked invoiced` : 'Prices saved');
+      if (action === 'invoice') { I.open = null; invScreen(); }
+    });
+    el.querySelector('[data-sp]').onclick = () => send('prices');
+    el.querySelector('[data-mi]').onclick = () => send('invoice');
+    el.querySelector('input.price')?.focus();
   });
-  el.querySelector('[data-sp]').onclick = () => send('prices');
-  el.querySelector('[data-mi]').onclick = () => send('invoice');
-  return el;
 }
 
 /* ================= ADMIN: all orders ================= */
@@ -533,9 +598,9 @@ async function allScreen() {
       <span>Delivery:</span><input type="date" id="a-date" value="${A.date}">${A.date ? '<button class="link" id="a-clr">all dates</button>' : ''}</div>
     ${orders.length ? `<table><thead><tr><th>#</th><th>Prepare</th><th>Delivery</th><th>Customer</th><th>Items</th><th class="num">Total</th><th>Status</th></tr></thead><tbody>${orders.map(o => {
       const ls = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position);
-      const tot = ls.reduce((s, l) => s + (prices[l.id] != null && isNum(l.qty_sent) ? l.qty_sent * prices[l.id] : 0), 0);
+      const tot = ls.reduce((s, l) => s + (prices[l.id] != null && l.qty_net != null ? l.qty_net * prices[l.id] : 0), 0);
       return `<tr class="click" data-o="${o.id}"><td>#${o.id}</td><td>${ukDate(o.prep_date)}</td><td>${ukDate(o.delivery_date)}</td><td><b>${esc(cust(o.customer_id)?.name)}</b></td>
-        <td style="font-size:15px">${ls.map(l => `${esc(item(l.item_id)?.name)} <b>${l.qty_sent != null ? qf(l.qty_sent) + ' ' + U(l.sent_unit) : qf(l.qty_ordered) + ' ' + U(l.unit)}</b>`).join(' · ')}${o.notes ? `<div class="muted">📝 ${esc(o.notes)}</div>` : ''}</td>
+        <td style="font-size:15px">${ls.map(l => `${esc(item(l.item_id)?.name)} <b>${l.qty_sent != null ? qf(l.qty_net) + ' ' + U(l.sent_unit) : qf(l.qty_ordered) + ' ' + U(l.unit)}</b>`).join(' · ')}${o.notes ? `<div class="muted">📝 ${esc(o.notes)}</div>` : ''}</td>
         <td class="num">${tot ? money(tot) : '—'}</td><td><span class="badge s-${o.status}">${ST[o.status]}</span>${o.invoice_number ? `<div class="muted">${esc(o.invoice_number)}</div>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<p class="muted">No orders.</p>'}</div>`;
   document.querySelectorAll('.pills [data-f]').forEach(b => b.onclick = () => { A.f = b.dataset.f; allScreen(); });
   $('#a-date').onchange = e => { A.date = e.target.value; allScreen(); };
@@ -548,11 +613,19 @@ async function setupScreen() {
   await loadLists();
   const list = (rows, kind) => rows.map(r => `<tr style="${r.active ? '' : 'color:#999'}" data-name="${esc(r.name.toLowerCase())}"><td>${esc(r.name)}${r.active ? '' : ' <span class="tag">hidden</span>'}</td>
     <td class="num"><button class="link" data-rn="${kind}:${r.id}">Rename</button><button class="link" data-hd="${kind}:${r.id}">${r.active ? 'Hide' : 'Show'}</button></td></tr>`).join('');
-  $('#view').innerHTML = `<div class="row" style="align-items:flex-start">
+  $('#view').innerHTML = `<div class="card"><h2>Tray weight</h2>
+    <div class="row" style="align-items:center"><div style="flex:none"><input id="s-tray" inputmode="decimal" style="width:120px;text-align:right" value="${TRAY}"></div><div style="flex:none">kg per tray</div>
+    <div style="flex:none"><button class="btn blue" id="s-tsave">Save</button></div>
+    <div class="muted">Processing enters how many trays; this weight × trays is taken off the weight. Changing it only affects weights entered from now on.</div></div></div>
+    <div class="row" style="align-items:flex-start">
     <div class="card"><h2>Customers</h2><div class="row"><input id="s-fc" placeholder="Search, or type a new name and press Add"><button class="btn blue" style="flex:none" id="s-ac">+ Add</button></div>
       <table style="margin-top:8px"><tbody id="s-tc">${list(customers, 'c')}</tbody></table></div>
     <div class="card"><h2>Items</h2><div class="row"><input id="s-fi" placeholder="Search, or type a new name and press Add"><button class="btn blue" style="flex:none" id="s-ai">+ Add</button></div>
       <table style="margin-top:8px"><tbody id="s-ti">${list(items, 'i')}</tbody></table></div></div>`;
+  $('#s-tsave').onclick = () => safe(async () => {
+    const v = $('#s-tray').value.trim(); if (!isNum(v) || Number(v) < 0) throw new Error('Enter the tray weight in kg, e.g. 1.65');
+    await q(sb.from('ord_settings').update({ value: String(Number(v)) }).eq('key', 'tray_kg')); TRAY = Number(v); toast('Tray weight saved');
+  });
   const filt = (inp, tb) => inp.oninput = () => { const t = inp.value.trim().toLowerCase(); tb.querySelectorAll('tr').forEach(r => r.style.display = r.dataset.name.includes(t) ? '' : 'none'); };
   filt($('#s-fc'), $('#s-tc')); filt($('#s-fi'), $('#s-ti'));
   $('#s-ac').onclick = () => safe(async () => { const n = $('#s-fc').value.trim(); if (!n) throw new Error('Type the new customer name in the box first'); await newCustomer(n); setupScreen(); });
