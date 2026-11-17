@@ -205,6 +205,16 @@
   .hrow:hover { background: #f8f6ee; } .hrow .hit { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
   .hrow.t { grid-template-columns: 90px 1fr; } .hrow.t.done { color: #999; text-decoration: line-through; } .hd { color: #777; font-size: 14px; }
   @media (max-width: 640px) { .hrow { grid-template-columns: 1fr auto; } .hrow > span:first-child, .hrow > .num { display: none; } .hhead input { width: 100%; margin-left: 0; } }
+  .icards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+  .icard { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0; }
+  .icr { font-size: 18px; font-weight: 800; white-space: nowrap; }
+  .pcard.flat { cursor: default; margin: 0; }
+  .il { border-top: 1px solid #eee; }
+  .irow { display: grid; grid-template-columns: minmax(0,1fr) 100px 150px 90px; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee; font-size: 15px; }
+  .irow.ih { font-size: 12px; color: #999; padding: 6px 0; } .irow > span:nth-child(n+2) { text-align: right; }
+  .iu { font-size: 13px; color: #1f4f7a; font-weight: 600; margin-top: 2px; }
+  .ipw { white-space: nowrap; } .irow input.price { width: 90px; text-align: right; font-size: 16px; font-weight: 700; padding: 7px 8px; }
+  @media (max-width: 560px) { .irow { grid-template-columns: minmax(0,1fr) 90px 100px; } .irow > span:nth-child(4), .irow.ih span:nth-child(4) { display: none; } }
   #login { max-width: 380px; margin: 60px auto; }
   .hide { display: none !important; }
 </style>
@@ -235,7 +245,7 @@ const sb = supabase.createClient('https://bcdibbhmiwccvvmryqze.supabase.co', 'sb
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => n == null || n === '' || isNaN(n) ? '—' : '£' + Number(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const qf = n => n == null || n === '' ? '' : String(Number(n));
+const qf = n => n == null || n === '' ? '' : String(Math.round(Number(n) * 1000) / 1000);
 const U = u => u === 'kg' ? 'kg' : u === 'units' ? 'units' : '';
 const per = u => u === 'kg' ? 'kg' : 'unit';
 const ukDate = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
@@ -793,94 +803,112 @@ async function xeroCall(body) {
 async function xeroStatus() { try { XERO = await xeroCall({ action: 'status' }); } catch { XERO = { connected: false }; } return XERO; }
 
 /* ================= INVOICING ================= */
-const I = { tab: 'todo', open: null };
+const I = { tab: 'todo' };
 async function invScreen() {
   await xeroStatus();
-  $('#view').innerHTML = `<div class="pills">
-      <button data-t="todo" class="${I.tab === 'todo' ? 'on' : ''}">To invoice</button>
-      <button data-t="done" class="${I.tab === 'done' ? 'on' : ''}">Invoiced</button>
-      <button data-t="waiting" class="${I.tab === 'waiting' ? 'on' : ''}">Not prepared yet</button></div><div class="olist" id="i-list"></div>`;
-  document.querySelectorAll('.pills [data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; I.open = null; invScreen(); });
   const status = { todo: 'fulfilled', done: 'invoiced', waiting: 'new' }[I.tab];
   let qy = sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('status', status);
-  qy = I.tab === 'done' ? qy.order('invoiced_at', { ascending: false }).limit(200) : qy.order('delivery_date').order('id');
-  const orders = await q(qy);
+  qy = I.tab === 'done' ? qy.order('invoiced_at', { ascending: false }).limit(200) : qy.order(I.tab === 'waiting' ? 'prep_date' : 'delivery_date').order('id');
+  const [orders, cnt] = await Promise.all([q(qy), q(sb.from('ord_orders').select('status').in('status', ['fulfilled', 'new']))]);
   orders.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position); delete o.ord_lines; });
-  const list = $('#i-list');
-  if (!orders.length) { list.innerHTML = `<div class="orow"><b>Nothing here</b></div>`; return; }
-  const prices = I.tab === 'waiting' ? {} : await pricesFor(orders.flatMap(o => o.lines.map(l => l.id)));
-  const last = {};
-  if (I.tab === 'todo') (await q(sb.from('ord_last_prices').select('*').in('customer_id', [...new Set(orders.map(o => o.customer_id))]))).forEach(r => last[`${r.customer_id}|${r.item_id}|${r.unit}`] = r);
-  orders.forEach(o => o.lines.forEach(l => {
-    l.price = prices[l.id] ?? ''; l.last = last[`${o.customer_id}|${l.item_id}|${l.sent_unit}`];
-    if (l.price === '' && l.last && I.tab === 'todo') l.price = l.last.price;
-  }));
+  const ids = orders.flatMap(o => o.lines.map(l => l.id));
+  const [prices, pk] = I.tab === 'waiting' ? [{}, {}] : await Promise.all([pricesFor(ids), packingFor(ids)]);
+  orders.forEach(o => o.lines.forEach(l => { l.price = prices[l.id] ?? ''; l.pack = pk[l.id] || []; }));
   const lt = l => isNum(l.price) && l.qty_net != null ? Math.round(Number(l.qty_net) * Number(l.price) * 100) / 100 : null;
   const tot = o => o.lines.reduce((s, l) => s + (lt(l) ?? 0), 0);
   const missing = o => o.lines.some(l => !isNum(l.price));
-  orders.forEach(o => {
-    const row = document.createElement('div'); row.className = 'orow' + (I.tab !== 'waiting' ? ' click' : '') + (I.open === o.id ? ' open' : '');
-    row.innerHTML = `<span class="d">${ukDate(o.delivery_date)}</span><span class="c">${esc(cust(o.customer_id)?.name)}</span>
-      <span class="i">${I.tab === 'waiting' ? itemsShort(o, false) : `#${o.id} · ${o.lines.length} item${o.lines.length === 1 ? '' : 's'}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}`}</span>
-      <span class="p" data-rt="${o.id}">${I.tab === 'waiting' ? '' : money(tot(o)) + (I.tab === 'todo' && missing(o) ? ' <span class="tag">prices?</span>' : '')}</span>
-      <span class="chev">${I.tab === 'waiting' ? '' : I.open === o.id ? '▲' : '▼'}</span>`;
-    list.appendChild(row);
-    if (I.tab === 'waiting') return;
-    row.onclick = () => { I.open = I.open === o.id ? null : o.id; invScreen(); };
-    if (I.open !== o.id) return;
-    const el = document.createElement('div'); el.className = 'oexp'; list.appendChild(el);
-    const edit = I.tab === 'todo';
-    el.innerHTML = `<table><thead><tr><th>Item</th><th class="num">Net sent</th><th class="num">Price</th><th class="num">Total</th></tr></thead><tbody>
-      ${o.lines.map((l, ix) => `<tr><td>${esc(item(l.item_id)?.name)} ${tagHtml(l)}</td>
-        <td class="num"><b>${qf(l.qty_net)} ${U(l.sent_unit)}</b>${l.trays > 0 ? `<div class="muted">${qf(l.qty_sent)} − ${l.trays} tray${l.trays > 1 ? 's' : ''}</div>` : ''}</td>
-        <td class="num">${edit ? `£ <input class="price" inputmode="decimal" data-ix="${ix}" value="${esc(l.price)}"> /${per(l.sent_unit)}
-          <div class="muted">${l.last ? `last ${money(l.last.price)} · ${ukDate(l.last.delivery_date)}` : 'no previous price'}</div>` : money(l.price) + '/' + per(l.sent_unit)}</td>
-        <td class="num" data-lt="${ix}">${money(lt(l))}</td></tr>`).join('')}</tbody></table>
-      <div class="total" data-tot>Total: ${money(tot(o))}</div>
-      <div class="actions" style="justify-content:flex-end">${edit ? `
-        <button class="btn" data-sp>Save prices</button>
-        ${XERO.connected ? `<button class="link" data-manual>mark invoiced without Xero…</button>
-        <button class="big blue" data-xs>Send to Xero</button>` : `
-        <input placeholder="Xero invoice no. (optional)" style="width:230px" data-inv>
-        <button class="big blue" data-mi>Mark invoiced</button>`}` : `${o.xero_invoice_id ? '<span class="muted">Sent to Xero as a draft</span>' : ''}<button class="btn" data-un>Undo invoiced</button>`}</div>`;
-    if (!edit) {
-      el.querySelector('[data-un]').onclick = () => safe(async () => {
-        if (!confirm('Undo invoiced for #' + o.id + '?' + (o.xero_invoice_id ? '\n\nDelete the draft invoice ' + (o.invoice_number || '') + ' in Xero too, or you will get a duplicate when you send it again.' : ' (Fix the invoice in Xero too if needed.)'))) return;
-        await q(sb.rpc('ord_save', { p: { id: o.id, action: 'uninvoice' } })); toast('Moved back to To invoice'); I.open = null; invScreen();
-      });
-      return;
-    }
-    el.querySelectorAll('input.price').forEach(i => i.oninput = () => {
-      const l = o.lines[i.dataset.ix]; l.price = i.value.trim();
-      el.querySelector(`[data-lt="${i.dataset.ix}"]`).textContent = money(lt(l));
-      el.querySelector('[data-tot]').textContent = 'Total: ' + money(tot(o));
-      row.querySelector(`[data-rt="${o.id}"]`).innerHTML = money(tot(o)) + (missing(o) ? ' <span class="tag">prices?</span>' : '');
+  const nTodo = cnt.filter(c => c.status === 'fulfilled').length, nWait = cnt.filter(c => c.status === 'new').length;
+  const today = isoDay(0);
+  const dateOf = o => I.tab === 'done' ? (o.invoiced_at || '').slice(0, 10) : I.tab === 'waiting' ? o.prep_date : o.delivery_date;
+  const groups = []; orders.forEach(o => { const k = dateOf(o); let g = groups.find(x => x.k === k); if (!g) groups.push(g = { k, list: [] }); g.list.push(o); });
+  const gname = k => (k === today ? 'Today · ' : k === isoDay(-1) ? 'Yesterday · ' : k === isoDay(1) ? 'Tomorrow · ' : '') + ukDate(k);
+  const card = o => {
+    if (I.tab === 'waiting') return `<div class="pcard flat"><div class="pcn">${esc(cust(o.customer_id)?.name)}</div><div class="pci">${itemsShort(o, false)}</div></div>`;
+    const t = tot(o);
+    return `<button class="pcard icard" data-o="${o.id}"><div class="icl"><div class="pcn">${esc(cust(o.customer_id)?.name)}${I.tab === 'todo' && missing(o) ? ' <span class="tg tg-ed">prices needed</span>' : ''}</div>
+      <div class="pci">#${o.id} · ${o.lines.length} item${o.lines.length === 1 ? '' : 's'}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}</div></div><div class="icr">${t ? money(t) : '—'}</div></button>`;
+  };
+  $('#view').innerHTML = `
+    <div class="ptop"><div class="seg">
+      <button data-t="todo" class="${I.tab === 'todo' ? 'on' : ''}">To invoice${nTodo ? ` (${nTodo})` : ''}</button>
+      <button data-t="done" class="${I.tab === 'done' ? 'on' : ''}">Invoiced</button>
+      <button data-t="waiting" class="${I.tab === 'waiting' ? 'on' : ''}">Not prepared yet${nWait ? ` (${nWait})` : ''}</button></div></div>
+    ${groups.length ? groups.map(g => `<section class="pday"><div class="pdh"><span class="pdn" style="font-size:19px">${I.tab === 'done' ? 'Invoiced ' : I.tab === 'waiting' ? 'Prepare ' : 'Delivered '}${gname(g.k)}</span></div>
+      <div class="icards">${g.list.map(card).join('')}</div></section>`).join('')
+      : `<div class="empty">${I.tab === 'todo' ? 'Nothing to invoice 👍' : 'Nothing here'}</div>`}`;
+  document.querySelectorAll('.seg [data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; invScreen(); });
+  document.querySelectorAll('.icard[data-o]').forEach(b => b.onclick = () => invOpen(orders.find(o => o.id == b.dataset.o), { lt, tot }));
+}
+function invOpen(o, { lt, tot }) {
+  const edit = o.status === 'fulfilled';
+  const unitsInfo = l => {
+    const bits = [];
+    if (!l.added_by_ops && l.unit === 'units') bits.push(`${qf(l.qty_ordered)} units ordered`);
+    const packed = l.pack.reduce((s, r) => s + (r.qty_packed != null ? Number(r.qty_packed) : 0), 0);
+    if (l.pack.length && packed) bits.push(`${qf(packed)} packed`);
+    return bits.length ? `<div class="iu">${bits.join(' · ')}</div>` : '';
+  };
+  const { m, close } = modal(`
+    <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivered ${ukDate(o.delivery_date)}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}</div></div><button class="mx" aria-label="Close">✕</button></div>
+    <div class="il">
+      <div class="irow ih"><span>Item</span><span>Sent</span><span>Price</span><span>Total</span></div>
+      ${o.lines.map((l, ix) => `<div class="irow">
+        <span><b>${esc(item(l.item_id)?.name)}</b> ${tagHtml(l)}${unitsInfo(l)}</span>
+        <span><b>${qf(l.qty_net)} ${U(l.sent_unit)}</b>${l.trays > 0 ? `<div class="muted">${qf(l.qty_sent)} − ${l.trays} tray${l.trays > 1 ? 's' : ''}</div>` : ''}</span>
+        <span>${edit ? `<span class="ipw">£ <input class="price" inputmode="decimal" data-ix="${ix}" value="${esc(l.price)}"></span><div class="muted" data-last="${ix}"></div>` : `${money(l.price)}<span class="muted">/${per(l.sent_unit)}</span>`}</span>
+        <span class="num" data-lt="${ix}">${money(lt(l))}</span></div>`).join('')}
+    </div>
+    <div class="total" data-tot>Total: ${money(tot(o))}</div>
+    <div class="mf">${edit ? `
+      ${XERO.connected ? '<button class="link" data-manual style="margin-right:auto">mark invoiced without Xero</button>' : '<input placeholder="Invoice no. (optional)" data-inv style="width:190px;margin-right:auto">'}
+      <button class="mbtn ghost" data-sp>Save prices</button>
+      <button class="mbtn go" data-go>${XERO.connected ? 'Send to Xero' : 'Mark invoiced'}</button>`
+      : `${o.xero_invoice_id ? '<span class="muted" style="margin-right:auto">Sent to Xero as a draft</span>' : ''}<button class="mbtn ghost" data-un>Undo invoiced</button><button class="mbtn go" data-c>Close</button>`}</div>`);
+  m.querySelector('.mx').onclick = close;
+  if (!edit) {
+    m.querySelector('[data-c]').onclick = close;
+    m.querySelector('[data-un]').onclick = () => safe(async () => {
+      if (!confirm('Undo invoiced for #' + o.id + '?' + (o.xero_invoice_id ? '\n\nDelete the draft invoice ' + (o.invoice_number || '') + ' in Xero too, or you will get a duplicate when you send it again.' : ''))) return;
+      await q(sb.rpc('ord_save', { p: { id: o.id, action: 'uninvoice' } })); close(); toast('Moved back to To invoice'); invScreen();
     });
-    const check = all => { for (const l of o.lines) {
-        if (l.price !== '' && !isNum(l.price)) throw new Error(`"${l.price}" is not a price (${item(l.item_id)?.name})`);
-        if (all && !isNum(l.price)) throw new Error(`Enter a price for ${item(l.item_id)?.name}`);
-      } };
-    const savePrices = () => q(sb.rpc('ord_save', { p: { id: o.id, action: 'prices', lines: o.lines.map(l => ({ id: l.id, price: l.price })) } }));
-    const send = (action, invNo) => safe(async () => {
-      check(action === 'invoice');
-      await q(sb.rpc('ord_save', { p: { id: o.id, action, invoice_number: invNo ?? el.querySelector('[data-inv]')?.value ?? '', lines: o.lines.map(l => ({ id: l.id, price: l.price })) } }));
-      toast(action === 'invoice' ? `#${o.id} marked invoiced` : 'Prices saved');
-      if (action === 'invoice') { I.open = null; invScreen(); }
+    return;
+  }
+  // last invoiced price for this customer: fill empty prices and show it under the box
+  safe(async () => {
+    const rows = await q(sb.from('ord_last_prices').select('*').eq('customer_id', o.customer_id));
+    o.lines.forEach((l, ix) => {
+      const r = rows.find(x => x.item_id == l.item_id && x.unit === l.sent_unit), el = m.querySelector(`[data-last="${ix}"]`);
+      if (el) el.textContent = r ? `last ${money(r.price)} · ${ukDate(r.delivery_date)}` : 'no previous price';
+      if (r && l.price === '') { l.price = r.price; const i = m.querySelector(`input.price[data-ix="${ix}"]`); if (i) i.value = r.price; m.querySelector(`[data-lt="${ix}"]`).textContent = money(lt(l)); }
     });
-    el.querySelector('[data-sp]').onclick = () => send('prices');
-    el.querySelector('[data-mi]')?.addEventListener('click', () => send('invoice'));
-    el.querySelector('[data-manual]')?.addEventListener('click', () => { const n = prompt('Xero invoice number (optional):', ''); if (n !== null) send('invoice', n); });
-    el.querySelector('[data-xs]')?.addEventListener('click', e => safe(async () => {
+    m.querySelector('[data-tot]').textContent = 'Total: ' + money(tot(o));
+  });
+  const ins = [...m.querySelectorAll('input.price')];
+  ins.forEach((i, k) => {
+    i.oninput = () => { const l = o.lines[i.dataset.ix]; l.price = i.value.trim(); m.querySelector(`[data-lt="${i.dataset.ix}"]`).textContent = money(lt(l)); m.querySelector('[data-tot]').textContent = 'Total: ' + money(tot(o)); };
+    i.onkeydown = e => { if (e.key === 'Enter') ins[k + 1] ? ins[k + 1].focus() : i.blur(); };
+  });
+  setTimeout(() => ins[0]?.focus(), 50);
+  const check = all => { for (const l of o.lines) {
+      if (l.price !== '' && !isNum(l.price)) throw new Error(`"${l.price}" is not a price (${item(l.item_id)?.name})`);
+      if (all && !isNum(l.price)) throw new Error(`Enter a price for ${item(l.item_id)?.name}`);
+    } };
+  const linesP = () => o.lines.map(l => ({ id: l.id, price: l.price }));
+  m.querySelector('[data-sp]').onclick = () => safe(async () => { check(false); await q(sb.rpc('ord_save', { p: { id: o.id, action: 'prices', lines: linesP() } })); close(); toast('Prices saved'); invScreen(); });
+  const invoiceManually = invNo => safe(async () => { check(true); await q(sb.rpc('ord_save', { p: { id: o.id, action: 'invoice', invoice_number: invNo ?? '', lines: linesP() } })); close(); toast(`#${o.id} marked invoiced`); invScreen(); });
+  m.querySelector('[data-manual]')?.addEventListener('click', () => { const n = prompt('Xero invoice number (optional):', ''); if (n !== null) invoiceManually(n); });
+  m.querySelector('[data-go]').onclick = e => {
+    if (!XERO.connected) return invoiceManually(m.querySelector('[data-inv]')?.value || '');
+    safe(async () => {
       check(true);
       const b = e.target; b.disabled = true; b.textContent = 'Sending…';
       try {
-        await savePrices();
+        await q(sb.rpc('ord_save', { p: { id: o.id, action: 'prices', lines: linesP() } }));
         const r = await xeroCall({ action: 'send', order_id: o.id });
-        toast(`✓ Sent to Xero as draft ${r.invoice_number}`); I.open = null; invScreen();
+        close(); toast(`✓ Sent to Xero as draft ${r.invoice_number}`); invScreen();
       } finally { b.disabled = false; b.textContent = 'Send to Xero'; }
-    }));
-    el.querySelector('input.price')?.focus();
-  });
+    });
+  };
 }
 
 /* ================= ADMIN: home ================= */
