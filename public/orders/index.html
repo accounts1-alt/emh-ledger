@@ -601,7 +601,7 @@ async function openWeigh(o) {
         let right;
         if (l.mode === 'deleted') right = `<span class="wstate"><button class="lk" data-undo="${ix}">undo</button></span>`;
         else if (l.mode === 'later') right = `<span class="wstate">New order <input type="date" class="ld" data-ld="${ix}" value="${esc(l.ld)}"> <button class="lk" data-undo="${ix}">undo</button></span>`;
-        else right = `<span><input class="wi" data-ix="${ix}" inputmode="decimal" value="${esc(l.w)}"></span><span><select class="ws" data-ix="${ix}">${opts(l.t)}</select></span>`;
+        else right = `<span><input class="wi" data-ix="${ix}" inputmode="decimal" value="${esc(l.w)}"></span><span><input class="ws nav" data-ix="${ix}" inputmode="numeric" value="${esc(l.t === '0' ? '' : l.t)}" placeholder="0"></span>`;
         return `<div class="wrow ${l.mode === 'deleted' || l.mode === 'later' ? 'dim' : ''}">
           <span class="wn">${l.mode === 'edit' ? `<span class="ec" data-ec="${ix}"></span>` : `<span class="nmx">${esc(item(l.newItem)?.name)}</span>`}<span class="tgs" data-tg="${ix}">${liveTags(l)}</span></span>
           <span class="wo">${l.added_by_ops ? '—' : `${qf(l.qty_ordered)} ${U(l.unit)}`}</span>
@@ -617,11 +617,12 @@ async function openWeigh(o) {
           : resaleOn ? `<div class="wrs"><span>Resale price, total for this item</span><span>£ <input class="wrv nav" data-ix="${ix}" inputmode="decimal" value="${esc(l.rv)}"></span></div>` : ''}`}`;
       }).join('');
     const ins = [...wl.querySelectorAll('.wi, .nav')];
+    wl.querySelectorAll('.ws').forEach(i => i.oninput = () => { const l = lines[i.dataset.ix]; l.t = i.value.trim() === '' ? '0' : i.value.trim(); wl.querySelector(`[data-tg="${i.dataset.ix}"]`).innerHTML = liveTags(l); });
     ins.forEach((i, k) => i.onkeydown = e => { if (e.key === 'Enter') { ins[k + 1] ? ins[k + 1].focus() : i.blur(); } });
     wl.querySelectorAll('.wi').forEach(i => i.oninput = () => { const l = lines[i.dataset.ix]; l.w = i.value.trim(); wl.querySelector(`[data-tg="${i.dataset.ix}"]`).innerHTML = liveTags(l); });
     wl.querySelectorAll('.wpq').forEach(i => i.oninput = () => lines[i.dataset.ix].pack[i.dataset.j][i.dataset.f] = i.value.trim());
     wl.querySelectorAll('.wrv').forEach(i => i.oninput = () => lines[i.dataset.ix].rv = i.value.trim());
-    wl.querySelectorAll('.ws').forEach(s => s.onchange = () => { const l = lines[s.dataset.ix]; l.t = s.value; wl.querySelector(`[data-tg="${s.dataset.ix}"]`).innerHTML = liveTags(l); });
+
     wl.querySelectorAll('[data-m]').forEach(b => b.onclick = e => {
       e.stopPropagation(); const dm = wl.querySelector(`[data-dm="${b.dataset.m}"]`), was = !dm.classList.contains('hide');
       wl.querySelectorAll('.dm').forEach(x => x.classList.add('hide')); if (!was) dm.classList.remove('hide');
@@ -657,6 +658,7 @@ async function openWeigh(o) {
       if (l.mode === 'edit') throw new Error('Finish choosing the item first');
       if (l.mode === 'later' && !l.ld) throw new Error(`Choose the day for the new order (${n})`);
       if (l.mode) continue;
+      if (!/^\d+$/.test(l.t)) throw new Error(`${n}: trays must be a whole number`);
       if (!final) {
         const bad = [l.w, ...(l.pack || []).flatMap(r => [r.packed, r.kg, resaleOn ? r.rp : '']), resaleOn ? l.rv : ''].find(v => v !== '' && v != null && !isNum(v));
         if (bad !== undefined) throw new Error(`${n}: "${bad}" is not a number`);
