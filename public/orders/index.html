@@ -152,8 +152,12 @@
   .pkr { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
   .pkr .pq { width: 80px; text-align: right; flex: none; } .pkr .ph { flex: 1; }
   .pkf { display: flex; gap: 12px; align-items: center; }
-  .rtog { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; margin: 0 0 8px; cursor: pointer; }
-  .rtog input { width: 18px; height: 18px; }
+  .rsw { display: flex; align-items: center; gap: 12px; width: 100%; border: 2px solid #cfcbbf; background: #f4f3ee; border-radius: 12px; padding: 10px 14px; margin: 0 0 10px; font-size: 17px; color: #444; text-align: left; }
+  .rsw .knob { width: 46px; height: 26px; border-radius: 13px; background: #bbb; position: relative; flex: none; transition: background .15s; }
+  .rsw .knob::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .rsw.on { border-color: #1f4f7a; background: #eaf1f8; color: #1f3d66; }
+  .rsw.on .knob { background: #1f4f7a; } .rsw.on .knob::after { left: 23px; }
+  .wpq.match { color: #1f7a3a; border-color: #8cc49c; } .wpq.diff { color: #b3261e; border-color: #e3a29d; }
   .wpk { background: #fffaeb; border-left: 3px solid #e0a800; padding: 8px 12px; margin: 0 0 8px; }
   .wpkt { font-size: 12px; font-weight: 700; color: #7a5a00; margin-bottom: 4px; }
   .wpkh, .wpk .wpkr { display: grid; grid-template-columns: 1fr 80px 90px; gap: 8px; align-items: center; }
@@ -576,6 +580,7 @@ async function openWeigh(o) {
     l.pack = (pk[l.id] || []).map(r => ({ id: r.id, planned: r.qty_planned, how: r.how, packed: r.qty_packed != null ? qf(r.qty_packed) : '', kg: r.weight != null ? qf(r.weight) : '', rp: prs[r.id] != null ? String(Number(prs[r.id])) : '' }));
     l.rv = rs[l.id] != null ? String(Number(rs[l.id])) : ''; });
   const opts = v => Array.from({ length: 11 }, (_, i) => `<option ${String(i) === v ? 'selected' : ''}>${i}</option>`).join('');
+  const packCls = r => !isNum(r.packed) || r.planned == null ? '' : Number(r.packed) === Number(r.planned) ? 'match' : 'diff';
   const liveTags = l => {
     const t = [];
     if (l.added_by_ops) t.push('<span class="tg tg-add">added</span>');
@@ -590,7 +595,7 @@ async function openWeigh(o) {
     <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivery ${ukDate(o.delivery_date)}</div></div>
       <button class="mx" title="Close">✕</button></div>
     ${o.notes ? `<div class="mnote">${esc(o.notes)}</div>` : ''}
-    <label class="rtog"><input type="checkbox" data-rs ${resaleOn ? 'checked' : ''}> Resale prices</label>
+    <button type="button" class="rsw ${resaleOn ? 'on' : ''}" data-rs><span class="knob"></span><span class="rsl">Resale prices: <b>${resaleOn ? 'ON' : 'OFF'}</b></span></button>
     <div class="wl"></div>
     <div class="addrow"><div class="ac"></div></div>
     <div class="mf"><button class="mbtn ghost" data-c>Cancel</button><button class="mbtn ghost" data-sv>Save</button><button class="mbtn go" data-d>Done</button></div>`);
@@ -613,14 +618,17 @@ async function openWeigh(o) {
               <button data-a="del" data-ix="${ix}" class="danger">Delete</button>
             </div></span>
         </div>
-        ${l.mode ? '' : `${(l.pack || []).length ? `<div class="wpk"><div class="wpkh"><span>Packing</span><span>Packed</span><span>Kg</span>${resaleOn ? '<span>Resale £</span>' : ''}</div>${l.pack.map((r, j) => `<div class="wpkr ${resaleOn ? 'r4' : ''}"><span>${r.planned != null ? qf(r.planned) + ' × ' : ''}${esc(r.how)}</span><input class="wpq nav" data-ix="${ix}" data-j="${j}" data-f="packed" inputmode="decimal" value="${esc(r.packed)}"><input class="wpq nav" data-ix="${ix}" data-j="${j}" data-f="kg" inputmode="decimal" value="${esc(r.kg)}">${resaleOn ? `<input class="wpq nav" data-ix="${ix}" data-j="${j}" data-f="rp" inputmode="decimal" value="${esc(r.rp)}">` : ''}</div>`).join('')}</div>`
+        ${l.mode ? '' : `${(l.pack || []).length ? `<div class="wpk"><div class="wpkh"><span>Packing</span><span>Packed</span><span>Kg</span>${resaleOn ? '<span>Resale £</span>' : ''}</div>${l.pack.map((r, j) => `<div class="wpkr ${resaleOn ? 'r4' : ''}"><span>${r.planned != null ? qf(r.planned) + ' × ' : ''}${esc(r.how)}</span><input class="wpq nav ${packCls(r)}" data-ix="${ix}" data-j="${j}" data-f="packed" inputmode="decimal" value="${esc(r.packed)}"><input class="wpq nav" data-ix="${ix}" data-j="${j}" data-f="kg" inputmode="decimal" value="${esc(r.kg)}">${resaleOn ? `<input class="wpq nav" data-ix="${ix}" data-j="${j}" data-f="rp" inputmode="decimal" value="${esc(r.rp)}">` : ''}</div>`).join('')}</div>`
           : resaleOn ? `<div class="wrs"><span>Resale price, total for this item</span><span>£ <input class="wrv nav" data-ix="${ix}" inputmode="decimal" value="${esc(l.rv)}"></span></div>` : ''}`}`;
       }).join('');
     const ins = [...wl.querySelectorAll('.wi, .nav')];
     wl.querySelectorAll('.ws').forEach(i => i.oninput = () => { const l = lines[i.dataset.ix]; l.t = i.value.trim() === '' ? '0' : i.value.trim(); wl.querySelector(`[data-tg="${i.dataset.ix}"]`).innerHTML = liveTags(l); });
     ins.forEach((i, k) => i.onkeydown = e => { if (e.key === 'Enter') { ins[k + 1] ? ins[k + 1].focus() : i.blur(); } });
     wl.querySelectorAll('.wi').forEach(i => i.oninput = () => { const l = lines[i.dataset.ix]; l.w = i.value.trim(); wl.querySelector(`[data-tg="${i.dataset.ix}"]`).innerHTML = liveTags(l); });
-    wl.querySelectorAll('.wpq').forEach(i => i.oninput = () => lines[i.dataset.ix].pack[i.dataset.j][i.dataset.f] = i.value.trim());
+    wl.querySelectorAll('.wpq').forEach(i => i.oninput = () => {
+      const r = lines[i.dataset.ix].pack[i.dataset.j]; r[i.dataset.f] = i.value.trim();
+      if (i.dataset.f === 'packed') { i.classList.remove('match', 'diff'); const c = packCls(r); if (c) i.classList.add(c); }
+    });
     wl.querySelectorAll('.wrv').forEach(i => i.oninput = () => lines[i.dataset.ix].rv = i.value.trim());
 
     wl.querySelectorAll('[data-m]').forEach(b => b.onclick = e => {
@@ -644,7 +652,7 @@ async function openWeigh(o) {
     if (focusIx != null) wl.querySelector(`.wi[data-ix="${focusIx}"]`)?.focus();
   }
   draw();
-  m.querySelector('[data-rs]').onchange = e => { resaleOn = e.target.checked; draw(); };
+  m.querySelector('[data-rs]').onclick = e => { resaleOn = !resaleOn; const b = e.currentTarget; b.classList.toggle('on', resaleOn); b.querySelector('b').textContent = resaleOn ? 'ON' : 'OFF'; draw(); };
   combo(m.querySelector('.ac'), { list: () => items, value: null, clear: true, placeholder: '+ Add item', addWord: 'item',
     onPick: id => { lines.push({ id: null, item_id: id, newItem: id, added_by_ops: true, w: '', t: '0', mode: null, pack: [], rv: '' }); draw(lines.length - 1); } });
   m.querySelector('.mbox').addEventListener('click', e => { if (!e.target.closest('.dots')) m.querySelectorAll('.dm').forEach(x => x.classList.add('hide')); });
