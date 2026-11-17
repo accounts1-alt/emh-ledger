@@ -538,8 +538,9 @@ async function procScreen() {
   if (!orders.length) list.innerHTML = `<div class="empty">${P.tab === 'todo' ? 'Nothing to prepare' : 'Nothing done yet'} 👍</div>`;
   orders.forEach(o => {
     const late = P.tab === 'todo' && o.prep_date < today;
+    const live = o.lines.filter(l => !l.removed), done = live.filter(l => l.qty_sent != null).length;
     const c = document.createElement('button'); c.className = 'ocard' + (late ? ' late' : '');
-    c.innerHTML = `<div class="oc-top"><span class="oc-name">${esc(cust(o.customer_id)?.name)}</span>
+    c.innerHTML = `<div class="oc-top"><span class="oc-name">${esc(cust(o.customer_id)?.name)}${P.tab === 'todo' && done ? ` <span class="tg tg-ed">${done} of ${live.length} weighed</span>` : ''}</span>
         <span class="oc-date">${late ? 'Late · ' : ''}${ukDate(o.prep_date)}</span></div>
       <div class="oc-items">${itemsShort(o, P.tab === 'done')}</div>
       ${o.notes ? `<div class="oc-note">${esc(o.notes)}</div>` : ''}`;
@@ -592,7 +593,7 @@ async function openWeigh(o) {
     <label class="rtog"><input type="checkbox" data-rs ${resaleOn ? 'checked' : ''}> Resale prices</label>
     <div class="wl"></div>
     <div class="addrow"><div class="ac"></div></div>
-    <div class="mf"><button class="mbtn ghost" data-c>Cancel</button><button class="mbtn go" data-d>Done</button></div>`);
+    <div class="mf"><button class="mbtn ghost" data-c>Cancel</button><button class="mbtn ghost" data-sv>Save</button><button class="mbtn go" data-d>Done</button></div>`);
   const wl = m.querySelector('.wl');
   function draw(focusIx) {
     wl.innerHTML = `<div class="wrow wh"><span>Item</span><span>Ordered</span><span>Sent kg</span><span>Trays</span><span></span></div>` +
@@ -649,12 +650,19 @@ async function openWeigh(o) {
   m.querySelector('.mx').onclick = close; m.querySelector('[data-c]').onclick = close;
   setTimeout(() => m.querySelector('.wi')?.focus(), 50);
 
-  m.querySelector('[data-d]').onclick = () => safe(async () => {
+  // Save = keep what's filled in, order stays in To do.  Done = everything must be filled in.
+  const submit = final => safe(async () => {
     for (const l of lines) {
       const n = item(l.newItem)?.name;
       if (l.mode === 'edit') throw new Error('Finish choosing the item first');
       if (l.mode === 'later' && !l.ld) throw new Error(`Choose the day for the new order (${n})`);
       if (l.mode) continue;
+      if (!final) {
+        const bad = [l.w, ...(l.pack || []).flatMap(r => [r.packed, r.kg, resaleOn ? r.rp : '']), resaleOn ? l.rv : ''].find(v => v !== '' && v != null && !isNum(v));
+        if (bad !== undefined) throw new Error(`${n}: "${bad}" is not a number`);
+        if (isNum(l.w) && Number(l.w) - Number(l.t) * TRAY <= 0) throw new Error(`${n}: weight is less than the trays`);
+        continue;
+      }
       if (l.w === '') throw new Error(`Fill in the kg for ${n} — or use ⋯`);
       if (!isNum(l.w)) throw new Error(`"${l.w}" is not a weight (${n})`);
       if (Number(l.w) - Number(l.t) * TRAY <= 0) throw new Error(`${n}: weight is less than the trays`);
@@ -670,17 +678,19 @@ async function openWeigh(o) {
     }
     const payload = lines.map(l => {
       const ok = !l.mode;
-      const x = { id: l.id || '', item_id: l.newItem, qty_sent: ok ? l.w : '', sent_unit: ok ? 'kg' : '', trays: ok ? l.t : '0', removed: !ok,
+      const x = { id: l.id || '', item_id: l.newItem, qty_sent: ok ? l.w : '', sent_unit: ok && l.w !== '' ? 'kg' : '', trays: ok ? l.t : '0', removed: !ok,
         later_date: l.mode === 'later' ? l.ld : '', later_qty: l.mode === 'later' ? qf(l.qty_ordered) : '',
         packing: (l.pack || []).map(r => resaleOn ? { id: r.id, qty_packed: r.packed, weight: r.kg, resale: r.rp } : { id: r.id, qty_packed: r.packed, weight: r.kg }) };
       if (resaleOn && !(l.pack || []).length) x.resale_total = ok ? l.rv : '';
       return x;
     });
-    await q(sb.rpc('ord_save', { p: { id: o.id, action: 'fulfil', resale_on: resaleOn, lines: payload } }));
+    await q(sb.rpc('ord_save', { p: { id: o.id, action: final ? 'fulfil' : 'sent', resale_on: resaleOn, lines: payload } }));
     const moved = lines.filter(l => l.mode === 'later').length;
-    close(); toast(`✓ ${cust(o.customer_id)?.name} done` + (moved ? ` · ${moved} item${moved > 1 ? 's' : ''} moved to a new order` : ''));
+    close(); toast((final ? `✓ ${cust(o.customer_id)?.name} done` : `Saved – ${cust(o.customer_id)?.name} is still to do`) + (moved ? ` · ${moved} item${moved > 1 ? 's' : ''} moved to a new order` : ''));
     procScreen();
   });
+  m.querySelector('[data-sv]').onclick = () => submit(false);
+  m.querySelector('[data-d]').onclick = () => submit(true);
 }
 async function openDone(o) {
   const ids = o.lines.map(l => l.id), pk = await packingFor(ids), rs = o.resale_on ? await resaleFor(ids) : {};
