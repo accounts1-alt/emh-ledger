@@ -156,8 +156,12 @@
   .rtog input { width: 18px; height: 18px; }
   .wpk { background: #fffaeb; border-left: 3px solid #e0a800; padding: 8px 12px; margin: 0 0 8px; }
   .wpkt { font-size: 12px; font-weight: 700; color: #7a5a00; margin-bottom: 4px; }
+  .wpkh, .wpk .wpkr { display: grid; grid-template-columns: 1fr 80px 90px; gap: 8px; align-items: center; }
+  .wpk.r4 .wpkh, .wpk .wpkr.r4, .wpkh:has(span:nth-child(4)) { grid-template-columns: 1fr 80px 90px 100px; }
+  .wpk .wpkr.d { display: flex; justify-content: space-between; }
+  .wpkh { font-size: 12px; font-weight: 700; color: #7a5a00; margin-bottom: 2px; } .wpkh span:nth-child(n+2) { text-align: center; }
   .wpkr { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 3px 0; font-size: 15px; }
-  .wpq { width: 90px; text-align: center; font-size: 17px; font-weight: 700; padding: 7px 6px; border: 1.5px solid #ccc; border-radius: 10px; flex: none; }
+  .wpq { width: 100%; text-align: center; font-size: 17px; font-weight: 700; padding: 7px 6px; border: 1.5px solid #ccc; border-radius: 10px; flex: none; }
   .wrs { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #f4f6f9; padding: 8px 12px; margin: 0 0 8px; font-size: 15px; }
   .wrv { width: 110px; text-align: right; font-size: 17px; font-weight: 700; padding: 7px 8px; border: 1.5px solid #ccc; border-radius: 10px; }
   .mleft { background: #f4f6f9; border-radius: 10px; padding: 12px 14px; margin-top: 14px; display: grid; gap: 8px; }
@@ -351,6 +355,12 @@ async function resaleFor(lineIds) {
   for (let i = 0; i < lineIds.length; i += 150) (await q(sb.from('ord_line_resale').select('*').in('line_id', lineIds.slice(i, i + 150)))).forEach(r => out[r.line_id] = r.total);
   return out;
 }
+async function packResaleFor(packIds) {
+  const out = {};
+  if (role === 'invoicing' || !packIds.length) return out;
+  for (let i = 0; i < packIds.length; i += 150) (await q(sb.from('ord_packing_resale').select('*').in('packing_id', packIds.slice(i, i + 150)))).forEach(r => out[r.packing_id] = r.price);
+  return out;
+}
 let PACK_WORDS = [];
 async function loadPackWords() {
   try { const rows = await q(sb.from('ord_packing').select('how').order('id', { ascending: false }).limit(500)); PACK_WORDS = [...new Set(rows.map(r => r.how))].slice(0, 80); } catch { PACK_WORDS = []; }
@@ -362,7 +372,8 @@ async function orderScreen(id) {
     o.prices = await pricesFor(o.lines.map(l => l.id));
     const pk = await packingFor(o.lines.map(l => l.id));
     o.resale = await resaleFor(o.lines.map(l => l.id));
-    o.lines.forEach(l => l.packing = (pk[l.id] || []).map(r => ({ id: r.id, qty_planned: qf(r.qty_planned), how: r.how, qty_packed: r.qty_packed })));
+    o.packResale = await packResaleFor(Object.values(pk).flat().map(r => r.id));
+    o.lines.forEach(l => l.packing = (pk[l.id] || []).map(r => ({ id: r.id, qty_planned: qf(r.qty_planned), how: r.how, qty_packed: r.qty_packed, weight: r.weight, resale: o.packResale[r.id] })));
     O = o;
   } else {
     O = { id: null, customer_id: null, delivery_date: isoDay(0), prep_date: isoDay(0), notes: '', status: 'new', lines: [{ item_id: null, qty_ordered: '', unit: '' }], prices: {} };
@@ -458,7 +469,7 @@ function sentSummary(o) {
   const showP = role !== 'processing';
   const rows = o.lines.map(l => {
     const p = o.prices[l.id];
-    const pkx = (l.packing || []).map(r => `${r.qty_planned !== '' && r.qty_planned != null ? qf(r.qty_planned) + ' × ' : ''}${esc(r.how)}${r.qty_packed != null ? ` <b>→ ${qf(r.qty_packed)} packed</b>` : ''}`).join(' · ');
+    const pkx = (l.packing || []).map(r => `${r.qty_planned !== '' && r.qty_planned != null ? qf(r.qty_planned) + ' × ' : ''}${esc(r.how)}${r.qty_packed != null ? ` <b>→ ${qf(r.qty_packed)} packed${r.weight != null ? ', ' + qf(r.weight) + ' kg' : ''}${r.resale != null && role === 'admin' ? ', resale ' + money(r.resale) : ''}</b>` : ''}`).join(' · ');
     const rv = o.resale?.[l.id];
     return `<tr><td>${esc(item(l.item_id)?.name)} ${tagHtml(l)}${pkx ? `<div class="muted">Packing: ${pkx}</div>` : ''}${rv != null && role === 'admin' ? `<div class="muted">Resale price: ${money(rv)}</div>` : ''}</td>
       <td class="num">${l.added_by_ops ? '—' : qf(l.qty_ordered) + ' ' + U(l.unit)}</td>
@@ -558,9 +569,10 @@ const tagHtml = l => {
 async function openWeigh(o) {
   const lines = o.lines.filter(l => !(l.removed && l.moved_to));
   const ids = lines.map(l => l.id), pk = await packingFor(ids), rs = await resaleFor(ids);
+  const prs = await packResaleFor(Object.values(pk).flat().map(r => r.id));
   let resaleOn = !!o.resale_on;
   lines.forEach(l => { l.w = l.qty_sent != null ? qf(l.qty_sent) : ''; l.t = String(l.trays || 0); l.mode = l.removed ? 'deleted' : null; l.newItem = l.item_id;
-    l.pack = (pk[l.id] || []).map(r => ({ id: r.id, planned: r.qty_planned, how: r.how, packed: r.qty_packed != null ? qf(r.qty_packed) : '' }));
+    l.pack = (pk[l.id] || []).map(r => ({ id: r.id, planned: r.qty_planned, how: r.how, packed: r.qty_packed != null ? qf(r.qty_packed) : '', kg: r.weight != null ? qf(r.weight) : '', rp: prs[r.id] != null ? String(Number(prs[r.id])) : '' }));
     l.rv = rs[l.id] != null ? String(Number(rs[l.id])) : ''; });
   const opts = v => Array.from({ length: 11 }, (_, i) => `<option ${String(i) === v ? 'selected' : ''}>${i}</option>`).join('');
   const liveTags = l => {
@@ -600,13 +612,13 @@ async function openWeigh(o) {
               <button data-a="del" data-ix="${ix}" class="danger">Delete</button>
             </div></span>
         </div>
-        ${l.mode ? '' : `${(l.pack || []).length ? `<div class="wpk"><div class="wpkt">Packing – how many packed?</div>${l.pack.map((r, j) => `<div class="wpkr"><span>${r.planned != null ? qf(r.planned) + ' × ' : ''}${esc(r.how)}</span><input class="wpq nav" data-ix="${ix}" data-j="${j}" inputmode="decimal" placeholder="Packed" value="${esc(r.packed)}"></div>`).join('')}</div>` : ''}
-          ${resaleOn ? `<div class="wrs"><span>Resale price, total for this item</span><span>£ <input class="wrv nav" data-ix="${ix}" inputmode="decimal" value="${esc(l.rv)}"></span></div>` : ''}`}`;
+        ${l.mode ? '' : `${(l.pack || []).length ? `<div class="wpk"><div class="wpkh"><span>Packing</span><span>Packed</span><span>Kg</span>${resaleOn ? '<span>Resale £</span>' : ''}</div>${l.pack.map((r, j) => `<div class="wpkr ${resaleOn ? 'r4' : ''}"><span>${r.planned != null ? qf(r.planned) + ' × ' : ''}${esc(r.how)}</span><input class="wpq nav" data-ix="${ix}" data-j="${j}" data-f="packed" inputmode="decimal" value="${esc(r.packed)}"><input class="wpq nav" data-ix="${ix}" data-j="${j}" data-f="kg" inputmode="decimal" value="${esc(r.kg)}">${resaleOn ? `<input class="wpq nav" data-ix="${ix}" data-j="${j}" data-f="rp" inputmode="decimal" value="${esc(r.rp)}">` : ''}</div>`).join('')}</div>`
+          : resaleOn ? `<div class="wrs"><span>Resale price, total for this item</span><span>£ <input class="wrv nav" data-ix="${ix}" inputmode="decimal" value="${esc(l.rv)}"></span></div>` : ''}`}`;
       }).join('');
     const ins = [...wl.querySelectorAll('.wi, .nav')];
     ins.forEach((i, k) => i.onkeydown = e => { if (e.key === 'Enter') { ins[k + 1] ? ins[k + 1].focus() : i.blur(); } });
     wl.querySelectorAll('.wi').forEach(i => i.oninput = () => { const l = lines[i.dataset.ix]; l.w = i.value.trim(); wl.querySelector(`[data-tg="${i.dataset.ix}"]`).innerHTML = liveTags(l); });
-    wl.querySelectorAll('.wpq').forEach(i => i.oninput = () => lines[i.dataset.ix].pack[i.dataset.j].packed = i.value.trim());
+    wl.querySelectorAll('.wpq').forEach(i => i.oninput = () => lines[i.dataset.ix].pack[i.dataset.j][i.dataset.f] = i.value.trim());
     wl.querySelectorAll('.wrv').forEach(i => i.oninput = () => lines[i.dataset.ix].rv = i.value.trim());
     wl.querySelectorAll('.ws').forEach(s => s.onchange = () => { const l = lines[s.dataset.ix]; l.t = s.value; wl.querySelector(`[data-tg="${s.dataset.ix}"]`).innerHTML = liveTags(l); });
     wl.querySelectorAll('[data-m]').forEach(b => b.onclick = e => {
@@ -647,10 +659,11 @@ async function openWeigh(o) {
       if (!isNum(l.w)) throw new Error(`"${l.w}" is not a weight (${n})`);
       if (Number(l.w) - Number(l.t) * TRAY <= 0) throw new Error(`${n}: weight is less than the trays`);
       for (const r of (l.pack || [])) {
-        if (r.packed === '') throw new Error(`${n}: fill in how many were packed for “${r.how}”`);
-        if (!isNum(r.packed)) throw new Error(`${n}: "${r.packed}" is not a number`);
+        if (r.packed === '' || r.kg === '') throw new Error(`${n} – “${r.how}”: fill in how many were packed and the kg`);
+        if (!isNum(r.packed) || !isNum(r.kg)) throw new Error(`${n} – “${r.how}”: packed and kg must be numbers`);
+        if (resaleOn && (r.rp === '' || !isNum(r.rp))) throw new Error(`${n} – “${r.how}”: fill in the resale price — or switch Resale off`);
       }
-      if (resaleOn) {
+      if (resaleOn && !(l.pack || []).length) {
         if (l.rv === '') throw new Error(`${n}: fill in the resale price — or switch Resale off`);
         if (!isNum(l.rv)) throw new Error(`${n}: "${l.rv}" is not a price`);
       }
@@ -659,8 +672,8 @@ async function openWeigh(o) {
       const ok = !l.mode;
       const x = { id: l.id || '', item_id: l.newItem, qty_sent: ok ? l.w : '', sent_unit: ok ? 'kg' : '', trays: ok ? l.t : '0', removed: !ok,
         later_date: l.mode === 'later' ? l.ld : '', later_qty: l.mode === 'later' ? qf(l.qty_ordered) : '',
-        packing: (l.pack || []).map(r => ({ id: r.id, qty_packed: r.packed })) };
-      if (resaleOn) x.resale_total = ok ? l.rv : '';
+        packing: (l.pack || []).map(r => resaleOn ? { id: r.id, qty_packed: r.packed, weight: r.kg, resale: r.rp } : { id: r.id, qty_packed: r.packed, weight: r.kg }) };
+      if (resaleOn && !(l.pack || []).length) x.resale_total = ok ? l.rv : '';
       return x;
     });
     await q(sb.rpc('ord_save', { p: { id: o.id, action: 'fulfil', resale_on: resaleOn, lines: payload } }));
@@ -671,6 +684,7 @@ async function openWeigh(o) {
 }
 async function openDone(o) {
   const ids = o.lines.map(l => l.id), pk = await packingFor(ids), rs = o.resale_on ? await resaleFor(ids) : {};
+  const prs = o.resale_on ? await packResaleFor(Object.values(pk).flat().map(r => r.id)) : {};
   const { m, close } = modal(`
     <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivery ${ukDate(o.delivery_date)} · done by ${esc(uname(o.fulfilled_by))}</div></div>
       <button class="mx">✕</button></div>
@@ -679,7 +693,7 @@ async function openDone(o) {
       ${o.lines.map(l => `<div class="wrow"><span class="wn">${esc(item(l.item_id)?.name)}<span class="tgs">${tagHtml(l)}</span></span>
         <span class="wo">${l.added_by_ops ? '—' : `${qf(l.qty_ordered)} ${U(l.unit)}`}</span>
         <span>${l.removed ? '—' : qf(l.qty_sent)}</span><span>${l.removed ? '' : l.trays || 0}</span><span></span></div>
-        ${(pk[l.id] || []).length ? `<div class="wpk">${pk[l.id].map(r => `<div class="wpkr"><span>${r.qty_planned != null ? qf(r.qty_planned) + ' × ' : ''}${esc(r.how)}</span><b>${r.qty_packed != null ? qf(r.qty_packed) + ' packed' : '—'}</b></div>`).join('')}</div>` : ''}
+        ${(pk[l.id] || []).length ? `<div class="wpk">${pk[l.id].map(r => `<div class="wpkr d"><span>${r.qty_planned != null ? qf(r.qty_planned) + ' × ' : ''}${esc(r.how)}</span><b>${r.qty_packed != null ? qf(r.qty_packed) + ' packed' : '—'}${r.weight != null ? ' · ' + qf(r.weight) + ' kg' : ''}${prs[r.id] != null ? ' · ' + money(prs[r.id]) : ''}</b></div>`).join('')}</div>` : ''}
         ${rs[l.id] != null ? `<div class="wrs"><span>Resale price (total)</span><b>${money(rs[l.id])}</b></div>` : ''}`).join('')}
     </div>
     <div class="mf"><button class="mbtn ghost" data-re>Reopen</button><button class="mbtn go" data-c>Close</button></div>`);
