@@ -152,6 +152,9 @@
   .pkr { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
   .pkr .pq { width: 80px; text-align: right; flex: none; } .pkr .ph { flex: 1; }
   .pkf { display: flex; gap: 12px; align-items: center; }
+  .pkchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .pkchip { border: 1px solid #e0c870; background: #fff; color: #6b4b00; border-radius: 99px; padding: 5px 12px; font-size: 14px; font-weight: 600; }
+  .pkchip:hover { background: #fff3c4; } .pksave { font-size: 13px; flex: none; }
   .rsw { display: flex; align-items: center; gap: 12px; width: 100%; border: 2px solid #cfcbbf; background: #f4f3ee; border-radius: 12px; padding: 10px 14px; margin: 0 0 10px; font-size: 17px; color: #444; text-align: left; }
   .rsw .knob { width: 46px; height: 26px; border-radius: 13px; background: #bbb; position: relative; flex: none; transition: background .15s; }
   .rsw .knob::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .15s; }
@@ -212,6 +215,13 @@
   .il { border-top: 1px solid #eee; }
   .irow { display: grid; grid-template-columns: minmax(0,1fr) 100px 150px 90px; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee; font-size: 15px; }
   .irow.ih { font-size: 12px; color: #999; padding: 6px 0; } .irow > span:nth-child(n+2) { text-align: right; }
+  .mbox.wide { max-width: 980px; }
+  .igrid { display: grid; grid-template-columns: minmax(0,1fr) 300px; gap: 18px; align-items: start; }
+  .iside { background: #fffaeb; border: 1px solid #f0dfa5; border-radius: 12px; padding: 12px 14px; font-size: 14px; }
+  .isth { font-size: 12px; font-weight: 800; color: #7a5a00; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+  .isit { padding: 6px 0; border-top: 1px solid #f0dfa5; } .isit:first-of-type { border-top: 0; }
+  .isr { display: flex; justify-content: space-between; gap: 8px; color: #555; padding: 2px 0; }
+  @media (max-width: 820px) { .igrid { grid-template-columns: 1fr; } }
   .iu { font-size: 13px; color: #1f4f7a; font-weight: 600; margin-top: 2px; }
   .ipw { white-space: nowrap; } .irow input.price { width: 90px; text-align: right; font-size: 16px; font-weight: 700; padding: 7px 8px; }
   @media (max-width: 560px) { .irow { grid-template-columns: minmax(0,1fr) 90px 100px; } .irow > span:nth-child(4), .irow.ih span:nth-child(4) { display: none; } }
@@ -405,10 +415,13 @@ async function packResaleFor(packIds) {
   for (let i = 0; i < packIds.length; i += 150) (await q(sb.from('ord_packing_resale').select('*').in('packing_id', packIds.slice(i, i + 150)))).forEach(r => out[r.packing_id] = r.price);
   return out;
 }
-let PACK_WORDS = [];
+let PACK_WORDS = [], PRESETS = [];
+async function loadPresets() { try { PRESETS = await q(sb.from('ord_packing_presets').select('*').order('text')); } catch { PRESETS = []; } }
 async function loadPackWords() {
-  try { const rows = await q(sb.from('ord_packing').select('how').order('id', { ascending: false }).limit(500)); PACK_WORDS = [...new Set(rows.map(r => r.how))].slice(0, 80); } catch { PACK_WORDS = []; }
+  await loadPresets();
+  try { const rows = await q(sb.from('ord_packing').select('how').order('id', { ascending: false }).limit(500)); PACK_WORDS = [...new Set([...PRESETS.map(p => p.text), ...rows.map(r => r.how)])].slice(0, 120); } catch { PACK_WORDS = PRESETS.map(p => p.text); }
 }
+const isPreset = t => PRESETS.some(p => p.text.trim().toLowerCase() === (t || '').trim().toLowerCase());
 async function orderScreen(id) {
   if (id) {
     const o = await q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('id', id).single());
@@ -490,11 +503,22 @@ function drawLines(focusLast) {
       pb.innerHTML = `<div class="pkt">Packing list</div>
         ${l.packing.map((r, j) => `<div class="pkr"><input class="pq" data-j="${j}" inputmode="decimal" placeholder="Qty" value="${esc(r.qty_planned ?? '')}">
           <input class="ph" data-j="${j}" list="pack-words" placeholder="How to pack, e.g. whole, 2 per tray" value="${esc(r.how ?? '')}">
+          <button class="link pksave ${(r.how || '').trim() && !isPreset(r.how) ? '' : 'hide'}" data-save="${j}" title="Save to packing options">save</button>
           <button class="link" data-x="${j}" aria-label="Remove packing line">✕</button></div>`).join('')}
-        <div class="pkf"><button class="link" data-addp>+ Add packing line</button><span class="muted" data-hint>${hint}</span></div>`;
+        <div class="pkf"><button class="link" data-addp>+ Add packing line</button><span class="muted" data-hint>${hint}</span></div>
+        ${PRESETS.length ? `<div class="pkchips">${PRESETS.map(p => `<button type="button" class="pkchip" data-preset="${esc(p.text)}">+ ${esc(p.text)}</button>`).join('')}</div>` : ''}`;
       const upHint = () => { const pl = l.packing.reduce((a, r) => a + (isNum(r.qty_planned) ? Number(r.qty_planned) : 0), 0); const h = pb.querySelector('[data-hint]'); if (h) h.textContent = isNum(l.qty_ordered) ? `${qf(pl)} of ${qf(l.qty_ordered)} ${U(l.unit)} planned` : ''; };
       pb.querySelectorAll('.pq').forEach(i => i.oninput = () => { l.packing[i.dataset.j].qty_planned = i.value.trim(); upHint(); });
-      pb.querySelectorAll('.ph').forEach(i => i.oninput = () => l.packing[i.dataset.j].how = i.value);
+      pb.querySelectorAll('.ph').forEach(i => i.oninput = () => { l.packing[i.dataset.j].how = i.value; pb.querySelector(`[data-save="${i.dataset.j}"]`).classList.toggle('hide', !i.value.trim() || isPreset(i.value)); });
+      pb.querySelectorAll('[data-save]').forEach(b => b.onclick = () => safe(async () => {
+        const t = (l.packing[b.dataset.save].how || '').trim(); if (!t) return;
+        await q(sb.from('ord_packing_presets').insert({ text: t })); await loadPackWords(); toast('Saved to packing options'); drawLines();
+      }));
+      pb.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => {
+        const empty = l.packing.findIndex(r => !(r.how || '').trim());
+        if (empty >= 0) l.packing[empty].how = b.dataset.preset; else l.packing.push({ qty_planned: '', how: b.dataset.preset });
+        const j = empty >= 0 ? empty : l.packing.length - 1; drawPack(); pb.querySelectorAll('.pq')[j]?.focus();
+      });
       pb.querySelectorAll('[data-x]').forEach(b => b.onclick = () => { l.packing.splice(+b.dataset.x, 1); drawPack(); });
       pb.querySelector('[data-addp]').onclick = () => { l.packing.push({ qty_planned: '', how: '' }); drawPack(); pb.querySelectorAll('.pq')[l.packing.length - 1].focus(); };
     };
@@ -844,12 +868,14 @@ function invOpen(o, { lt, tot }) {
   const unitsInfo = l => {
     const bits = [];
     if (!l.added_by_ops && l.unit === 'units') bits.push(`${qf(l.qty_ordered)} units ordered`);
-    const packed = l.pack.reduce((s, r) => s + (r.qty_packed != null ? Number(r.qty_packed) : 0), 0);
-    if (l.pack.length && packed) bits.push(`${qf(packed)} packed`);
     return bits.length ? `<div class="iu">${bits.join(' · ')}</div>` : '';
   };
+  const packLines = o.lines.filter(l => l.pack.length);
+  const side = packLines.length ? `<aside class="iside"><div class="isth">Packing</div>${packLines.map(l => `<div class="isit"><b>${esc(item(l.item_id)?.name)}</b>
+      ${l.pack.map(r => `<div class="isr"><span>${r.qty_planned != null ? qf(r.qty_planned) + ' × ' : ''}${esc(r.how)}</span><span>${r.qty_packed != null ? `<b class="${r.qty_planned != null && Number(r.qty_packed) !== Number(r.qty_planned) ? 'late-t' : ''}">${qf(r.qty_packed)}</b> packed` : '—'}${r.weight != null ? ` · ${qf(r.weight)} kg` : ''}</span></div>`).join('')}</div>`).join('')}</aside>` : '';
   const { m, close } = modal(`
     <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivered ${ukDate(o.delivery_date)}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}</div></div><button class="mx" aria-label="Close">✕</button></div>
+    <div class="${side ? 'igrid' : ''}"><div>
     <div class="il">
       <div class="irow ih"><span>Item</span><span>Sent</span><span>Price</span><span>Total</span></div>
       ${o.lines.map((l, ix) => `<div class="irow">
@@ -859,11 +885,13 @@ function invOpen(o, { lt, tot }) {
         <span class="num" data-lt="${ix}">${money(lt(l))}</span></div>`).join('')}
     </div>
     <div class="total" data-tot>Total: ${money(tot(o))}</div>
+    </div>${side}</div>
     <div class="mf">${edit ? `
       ${XERO.connected ? '<button class="link" data-manual style="margin-right:auto">mark invoiced without Xero</button>' : '<input placeholder="Invoice no. (optional)" data-inv style="width:190px;margin-right:auto">'}
       <button class="mbtn ghost" data-sp>Save prices</button>
       <button class="mbtn go" data-go>${XERO.connected ? 'Send to Xero' : 'Mark invoiced'}</button>`
       : `${o.xero_invoice_id ? '<span class="muted" style="margin-right:auto">Sent to Xero as a draft</span>' : ''}<button class="mbtn ghost" data-un>Undo invoiced</button><button class="mbtn go" data-c>Close</button>`}</div>`);
+  if (side) m.querySelector('.mbox').classList.add('wide');
   m.querySelector('.mx').onclick = close;
   if (!edit) {
     m.querySelector('[data-c]').onclick = close;
@@ -987,6 +1015,7 @@ async function homeScreen() {
 async function setupScreen() {
   await loadLists();
   await xeroStatus();
+  await loadPresets();
   const lastRow = (await q(sb.from('ord_settings').select('value').eq('key', 'last_xero_sync')))[0];
   const last = lastRow ? JSON.parse(lastRow.value) : null;
   const badge = (r, kind) => r.orphaned ? '<span class="tg tg-rem">deleted in Xero – archived</span>'
@@ -999,6 +1028,10 @@ async function setupScreen() {
       <div class="actions"><button class="big blue" id="x-sync">↻ Sync with Xero</button><button class="btn" id="x-con">Reconnect</button><button class="link" id="x-dis">Disconnect</button></div>
       <p class="muted" id="x-last">${last ? `Last sync ${new Date(last.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} by ${esc(uname(last.by))}: customers +${last.customers_added} added, ${last.customers_updated} updated, ${last.customers_archived} archived, ${last.customers_deleted} removed · items +${last.items_added} added, ${last.items_updated} updated, ${last.items_archived} archived, ${last.items_deleted} removed${last.error ? ` · <b style="color:#b3261e">stopped: ${esc(last.error)}</b>` : ''}` : 'Not synced yet.'}</p>`
     : `<p>Not connected. Click below and approve in Xero – you’ll come straight back here.</p>${XERO.client_hint ? `<p class="muted">Client ID in use: <b>${esc(XERO.client_hint)}</b> – it should match the Client ID on your Xero app page (32 characters).</p>` : ''}<div class="actions"><button class="big blue" id="x-con">Connect Xero</button></div>`}</div>
+    <div class="card"><h2>Packing options</h2>
+      <p class="muted">Saved ways of packing. They show as quick buttons under the packing list when creating an order.</p>
+      <div class="pkchips" id="s-pp">${PRESETS.map(p => `<span class="pkchip">${esc(p.text)} <button class="link" data-pp="${p.id}" aria-label="Remove">✕</button></span>`).join('') || '<span class="muted">None saved yet</span>'}</div>
+      <div class="row" style="margin-top:10px"><input id="s-ppin" placeholder="e.g. Whole, 2 per tray"><button class="btn blue" style="flex:none" id="s-ppadd">+ Add</button></div></div>
     <div class="card"><h2>Tray weight</h2>
     <div class="row" style="align-items:center"><div style="flex:none"><input id="s-tray" inputmode="decimal" style="width:120px;text-align:right" value="${TRAY}"></div><div style="flex:none">kg per tray</div>
     <div style="flex:none"><button class="btn blue" id="s-tsave">Save</button></div>
@@ -1017,6 +1050,10 @@ async function setupScreen() {
     try { const r = await xeroCall({ action: 'sync' }); toast(`Synced: ${r.customers_added} new customers, ${r.items_added} new items`); await setupScreen(); }
     finally { b.disabled = false; b.textContent = '↻ Sync with Xero'; }
   });
+  const addPP = () => safe(async () => { const t = $('#s-ppin').value.trim(); if (!t) throw new Error('Type the packing option first'); if (isPreset(t)) throw new Error('Already saved');
+    await q(sb.from('ord_packing_presets').insert({ text: t })); toast('Saved'); setupScreen(); });
+  $('#s-ppadd').onclick = addPP; $('#s-ppin').onkeydown = e => { if (e.key === 'Enter') addPP(); };
+  document.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => safe(async () => { await q(sb.from('ord_packing_presets').delete().eq('id', b.dataset.pp)); setupScreen(); }));
   $('#s-tsave').onclick = () => safe(async () => {
     const v = $('#s-tray').value.trim(); if (!isNum(v) || Number(v) < 0) throw new Error('Enter the tray weight in kg, e.g. 1.65');
     await q(sb.from('ord_settings').update({ value: String(Number(v)) }).eq('key', 'tray_kg')); TRAY = Number(v); toast('Tray weight saved');
