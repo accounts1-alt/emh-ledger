@@ -95,7 +95,8 @@ async function send(orderId: number, who: string) {
   const price = new Map((prices ?? []).map(p => [p.line_id, Number(p.price)]));
   const { data: items } = await db.from('ord_items').select('id, name, xero_code, xero_tax_type, xero_account').in('id', lines.map(l => l.item_id));
   const item = new Map((items ?? []).map(i => [i.id, i]));
-  const { data: cust } = await db.from('ord_customers').select('id, name, xero_contact_id').eq('id', o.customer_id).single();
+  const { data: cust } = await db.from('ord_customers').select('id, name, xero_contact_id, is_test').eq('id', o.customer_id).single();
+  if (cust?.is_test) throw new Fail('This is a test customer – it is never sent to Xero');
   const { data: tx } = await db.from('ord_settings').select('value').eq('key', 'xero_tax_type').maybeSingle();
   const taxType = tx?.value || 'ZERORATEDOUTPUT';
 
@@ -138,7 +139,7 @@ async function sync(who: string) {
   const xc = contacts.filter(c => c.ContactStatus === 'ACTIVE' && c.IsCustomer === true);   // only contacts Xero marks as customers (have sales invoices)
   const { data: appC } = await db.from('ord_customers').select('*');
   const cById = new Map((appC ?? []).filter(c => c.xero_contact_id).map(c => [c.xero_contact_id, c]));
-  const cUnlinked = new Map((appC ?? []).filter(c => !c.xero_contact_id).map(c => [norm(c.name), c]));
+  const cUnlinked = new Map((appC ?? []).filter(c => !c.xero_contact_id && !c.is_test).map(c => [norm(c.name), c]));
   const res = { customers_added: 0, customers_updated: 0, customers_archived: 0, customers_deleted: 0, items_added: 0, items_updated: 0, items_archived: 0, items_deleted: 0 };
   const seenC = new Set<string>();
   const newC: Record<string, unknown>[] = [];
@@ -155,7 +156,7 @@ async function sync(who: string) {
   }
   if (newC.length) { const { error } = await db.from('ord_customers').insert(newC); if (error) throw new Fail(`Saving customers: ${error.message}`); res.customers_added = newC.length; }
   // gone from Xero: archive if used on an order, otherwise remove (app-only new customers are kept until their first invoice)
-  const goneC = (appC ?? []).filter(c => c.xero_contact_id && !seenC.has(c.xero_contact_id));
+  const goneC = (appC ?? []).filter(c => !c.is_test && c.xero_contact_id && !seenC.has(c.xero_contact_id));
   const usedC = new Set<number>();
   if (goneC.length) ((await db.rpc('ord_used_customers', { ids: goneC.map(c => c.id) })).data ?? []).forEach((id: number) => usedC.add(Number(id)));
   const archC = goneC.filter(c => usedC.has(c.id) && !c.orphaned).map(c => c.id);

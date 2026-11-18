@@ -189,6 +189,8 @@
   .pcard:hover { box-shadow: 0 2px 4px rgba(0,0,0,.1), 0 6px 16px rgba(0,0,0,.08); }
   .pcn { font-size: 17px; font-weight: 800; } .pci { color: #555; font-size: 14px; margin-top: 2px; } .pcnote { color: #8a6d00; font-size: 13px; margin-top: 4px; }
   .pcard.done { background: #f3f3ef; box-shadow: none; } .pcard.done .pcn { color: #1f7a3a; font-weight: 700; } .pcard.done .pci { color: #999; }
+  .pmv { display: flex; gap: 6px; align-items: stretch; margin-bottom: 8px; } .pmv > .pcard, .pmv > .ptask { flex: 1; margin-bottom: 0; min-width: 0; }
+  .pmvb { display: flex; flex-direction: column; gap: 4px; } .pmvb button { flex: 1; border: 0; background: #ece9e1; color: #555; border-radius: 8px; width: 34px; font-size: 13px; cursor: pointer; } .pmvb button:hover { background: #ddd8cb; color: #000; }
   .ptask { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.07); font-size: 16px; }
   .ptask .tick { border: 0; background: none; padding: 4px; line-height: 1; flex: none; }
   .cbx { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 2px solid #aaa; border-radius: 7px; font-size: 18px; font-weight: 800; color: #fff; background: #fff; }
@@ -594,6 +596,8 @@ async function procScreen() {
     q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').neq('status', 'new').gte('fulfilled_at', midnight).order('id')),
     q(sb.from('ord_tasks').select('*').or(`done.eq.false,done_at.gte.${midnight}`).order('created_at')),
   ]);
+  const byPri = (a, b) => (a.priority ?? 1e9) - (b.priority ?? 1e9) || (a.id - b.id);
+  openO.sort(byPri); tasks.sort((a, b) => (a.done - b.done) || byPri(a, b));
   const orders = [...openO, ...doneO];
   orders.forEach(o => { o.lines = o.ord_lines.sort((a, b) => a.position - b.position); delete o.ord_lines; });
   const groups = {};
@@ -616,15 +620,33 @@ async function procScreen() {
   const taskRow = t => `<div class="ptask ${t.done ? 'done' : ''}"><button class="tick" data-t="${t.id}" data-dn="${t.done ? 1 : 0}" aria-label="${t.done ? 'Untick' : 'Tick'}"><span class="cbx">${t.done ? '✓' : ''}</span></button>
       <span class="ttx" data-seen="${!t.seen_at && !t.done ? t.id : ''}">${esc(t.text)}${!t.seen_at && !t.done ? ' <span class="tg tg-new">new</span>' : ''}${t.due_date < today ? ` · <b class="late-t">${ukDate(t.due_date)}</b>` : ''}</span></div>`;
   const empty = w => `<div class="pempty">No ${w}</div>`;
+  // admin: ▲▼ next to each open card to set the priority order within its list
+  const canMove = role === 'admin';
+  const mv = (kind, id, html) => canMove ? `<div class="pmv">${html}<div class="pmvb"><button data-mv="${kind}:${id}:-1" aria-label="Move up">▲</button><button data-mv="${kind}:${id}:1" aria-label="Move down">▼</button></div></div>` : html;
+  const oCard = o => isDoneO(o) ? orderCard(o) : mv('order', o.id, orderCard(o));
+  const tRow = t => t.done ? taskRow(t) : mv('task', t.id, taskRow(t));
   $('#view').innerHTML = `<div class="ptop"><span></span><button class="link" id="p-done">Earlier done orders →</button></div>` +
     keys.map(k => { const G = groups[k]; return `<section class="pday ${k === 'late' ? 'late' : ''}">
       <div class="pdh"><span class="pdn">${dayName(k)}</span><span class="pds">${daySub(k)}</span></div>
       <div class="pcols">
-        <div>${colHead('ti-truck-delivery', 'Orders', G.orders, isDoneO)}${G.orders.map(orderCard).join('') || empty('orders')}</div>
-        <div>${colHead('ti-list-check', 'Preparation tasks', G.prep, t => t.done)}${G.prep.map(taskRow).join('') || empty('tasks')}</div>
-        <div>${colHead('ti-building-store', 'Shop orders', G.shop, t => t.done)}${G.shop.map(taskRow).join('') || empty('shop orders')}</div>
+        <div>${colHead('ti-truck-delivery', 'Orders', G.orders, isDoneO)}${G.orders.map(oCard).join('') || empty('orders')}</div>
+        <div>${colHead('ti-list-check', 'Preparation tasks', G.prep, t => t.done)}${G.prep.map(tRow).join('') || empty('tasks')}</div>
+        <div>${colHead('ti-building-store', 'Shop orders', G.shop, t => t.done)}${G.shop.map(tRow).join('') || empty('shop orders')}</div>
       </div></section>`; }).join('');
   $('#p-done').onclick = () => { P.tab = 'done'; procScreen(); };
+  document.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => safe(async () => {
+    const [kind, id, dir] = b.dataset.mv.split(':');
+    let list;
+    for (const G of Object.values(groups)) {
+      const L = kind === 'order' ? G.orders.filter(o => !isDoneO(o)) : [G.prep, G.shop].map(x => x.filter(t => !t.done)).find(x => x.some(t => t.id == id));
+      if (L?.some(x => x.id == id)) { list = L; break; }
+    }
+    const i = list.findIndex(x => x.id == id), j = i + Number(dir);
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    await q(sb.rpc('ord_set_priority', { p_kind: kind, p_ids: list.map(x => x.id) }));
+    procScreen();
+  }));
   document.querySelectorAll('[data-o]').forEach(b => b.onclick = () => safe(async () => {
     const o = orders.find(x => x.id == b.dataset.o);
     if (!o.seen_at) { await q(sb.rpc('ord_mark_seen', { p_kind: 'order', p_id: o.id })); o.seen_at = new Date().toISOString(); b.querySelector('.tg-new')?.remove(); }
@@ -870,6 +892,7 @@ function invOpen(o, { lt, tot }) {
     if (!l.added_by_ops && l.unit === 'units') bits.push(`${qf(l.qty_ordered)} units ordered`);
     return bits.length ? `<div class="iu">${bits.join(' · ')}</div>` : '';
   };
+  const toXero = XERO.connected && !cust(o.customer_id)?.is_test;   // test customers never go to Xero
   const packLines = o.lines.filter(l => l.pack.length);
   const side = packLines.length ? `<aside class="iside"><div class="isth">Packing</div>${packLines.map(l => `<div class="isit"><b>${esc(item(l.item_id)?.name)}</b>
       ${l.pack.map(r => `<div class="isr"><span>${r.qty_planned != null ? qf(r.qty_planned) + ' × ' : ''}${esc(r.how)}</span><span>${r.qty_packed != null ? `<b class="${r.qty_planned != null && Number(r.qty_packed) !== Number(r.qty_planned) ? 'late-t' : ''}">${qf(r.qty_packed)}</b> packed` : '—'}${r.weight != null ? ` · ${qf(r.weight)} kg` : ''}</span></div>`).join('')}</div>`).join('')}</aside>` : '';
@@ -887,9 +910,9 @@ function invOpen(o, { lt, tot }) {
     <div class="total" data-tot>Total: ${money(tot(o))}</div>
     </div>${side}</div>
     <div class="mf">${edit ? `
-      ${XERO.connected ? '<button class="link" data-manual style="margin-right:auto">mark invoiced without Xero</button>' : '<input placeholder="Invoice no. (optional)" data-inv style="width:190px;margin-right:auto">'}
+      ${toXero ? '<button class="link" data-manual style="margin-right:auto">mark invoiced without Xero</button>' : '<input placeholder="Invoice no. (optional)" data-inv style="width:190px;margin-right:auto">'}
       <button class="mbtn ghost" data-sp>Save prices</button>
-      <button class="mbtn go" data-go>${XERO.connected ? 'Send to Xero' : 'Mark invoiced'}</button>`
+      <button class="mbtn go" data-go>${toXero ? 'Send to Xero' : 'Mark invoiced'}</button>`
       : `${o.xero_invoice_id ? '<span class="muted" style="margin-right:auto">Sent to Xero as a draft</span>' : ''}<button class="mbtn ghost" data-un>Undo invoiced</button><button class="mbtn go" data-c>Close</button>`}</div>`);
   if (side) m.querySelector('.mbox').classList.add('wide');
   m.querySelector('.mx').onclick = close;
@@ -926,7 +949,7 @@ function invOpen(o, { lt, tot }) {
   const invoiceManually = invNo => safe(async () => { check(true); await q(sb.rpc('ord_save', { p: { id: o.id, action: 'invoice', invoice_number: invNo ?? '', lines: linesP() } })); close(); toast(`#${o.id} marked invoiced`); invScreen(); });
   m.querySelector('[data-manual]')?.addEventListener('click', () => { const n = prompt('Xero invoice number (optional):', ''); if (n !== null) invoiceManually(n); });
   m.querySelector('[data-go]').onclick = e => {
-    if (!XERO.connected) return invoiceManually(m.querySelector('[data-inv]')?.value || '');
+    if (!toXero) return invoiceManually(m.querySelector('[data-inv]')?.value || '');
     safe(async () => {
       check(true);
       const b = e.target; b.disabled = true; b.textContent = 'Sending…';
