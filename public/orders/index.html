@@ -809,8 +809,8 @@ async function openWeigh(o) {
       if (!isNum(l.w)) throw new Error(`"${l.w}" is not a weight (${n})`);
       if (Number(l.w) - Number(l.t) * TRAY <= 0) throw new Error(`${n}: weight is less than the trays`);
       for (const r of (l.pack || [])) {
-        if (r.packed === '' || r.kg === '') throw new Error(`${n} – “${r.how}”: fill in how many were packed and the kg`);
-        if (!isNum(r.packed) || !isNum(r.kg)) throw new Error(`${n} – “${r.how}”: packed and kg must be numbers`);
+        if (r.packed === '') throw new Error(`${n} – “${r.how}”: fill in how many were packed`);
+        if (!isNum(r.packed) || (r.kg !== '' && !isNum(r.kg))) throw new Error(`${n} – “${r.how}”: packed and kg must be numbers`);
         if (resaleOn && (r.rp === '' || !isNum(r.rp))) throw new Error(`${n} – “${r.how}”: fill in the resale price — or switch Resale off`);
       }
       if (resaleOn && !(l.pack || []).length) {
