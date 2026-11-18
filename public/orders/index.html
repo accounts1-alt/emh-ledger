@@ -608,6 +608,11 @@ async function procScreen() {
   g(today);
   orders.forEach(o => g(key(o.prep_date)).orders.push(o));
   tasks.forEach(t => g(key(t.due_date))[t.kind].push(t));
+  // nothing outstanding from earlier days: no Late section (anything done from it shows under Today)
+  const L = groups.late;
+  if (L && !L.orders.some(o => o.status === 'new') && !L.prep.some(t => !t.done) && !L.shop.some(t => !t.done)) {
+    ['orders', 'prep', 'shop'].forEach(k => groups[today][k].push(...L[k])); delete groups.late;
+  }
   const keys = Object.keys(groups).sort((a, b) => a === 'late' ? -1 : b === 'late' ? 1 : a.localeCompare(b));
   const dayName = k => k === 'late' ? 'Late' : k === today ? 'Today' : k === isoDay(1) ? 'Tomorrow' : new Date(k + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long' });
   const daySub = k => k === 'late' ? 'from earlier days' : new Date(k + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
