@@ -190,7 +190,8 @@
   .pcn { font-size: 17px; font-weight: 800; } .pci { color: #555; font-size: 14px; margin-top: 2px; } .pcnote { color: #8a6d00; font-size: 13px; margin-top: 4px; }
   .pcard.done { background: #f3f3ef; box-shadow: none; } .pcard.done .pcn { color: #1f7a3a; font-weight: 700; } .pcard.done .pci { color: #999; }
   .pmv { display: flex; gap: 6px; align-items: stretch; margin-bottom: 8px; } .pmv > .pcard, .pmv > .ptask { flex: 1; margin-bottom: 0; min-width: 0; }
-  .pmvb { display: flex; flex-direction: column; gap: 4px; } .pmvb button { flex: 1; border: 0; background: #ece9e1; color: #555; border-radius: 8px; width: 34px; font-size: 13px; cursor: pointer; } .pmvb button:hover { background: #ddd8cb; color: #000; }
+  .pdrag { display: flex; align-items: center; justify-content: center; width: 30px; border-radius: 8px; background: #ece9e1; color: #888; font-size: 16px; letter-spacing: -3px; cursor: grab; touch-action: none; user-select: none; } .pdrag:hover { background: #ddd8cb; color: #000; }
+  .pmv.dragging { opacity: .85; } .pmv.dragging > .pcard, .pmv.dragging > .ptask { box-shadow: 0 6px 20px rgba(0,0,0,.18); outline: 2px solid #e0a800; } .pmv.dragging .pdrag { cursor: grabbing; background: #e0a800; color: #fff; }
   .ptask { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.07); font-size: 16px; }
   .ptask .tick { border: 0; background: none; padding: 4px; line-height: 1; flex: none; }
   .cbx { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 2px solid #aaa; border-radius: 7px; font-size: 18px; font-weight: 800; color: #fff; background: #fff; }
@@ -620,9 +621,9 @@ async function procScreen() {
   const taskRow = t => `<div class="ptask ${t.done ? 'done' : ''}"><button class="tick" data-t="${t.id}" data-dn="${t.done ? 1 : 0}" aria-label="${t.done ? 'Untick' : 'Tick'}"><span class="cbx">${t.done ? '✓' : ''}</span></button>
       <span class="ttx" data-seen="${!t.seen_at && !t.done ? t.id : ''}">${esc(t.text)}${!t.seen_at && !t.done ? ' <span class="tg tg-new">new</span>' : ''}${t.due_date < today ? ` · <b class="late-t">${ukDate(t.due_date)}</b>` : ''}</span></div>`;
   const empty = w => `<div class="pempty">No ${w}</div>`;
-  // admin: ▲▼ next to each open card to set the priority order within its list
+  // admin: drag the handle next to each open card to set the priority order within its list
   const canMove = role === 'admin';
-  const mv = (kind, id, html) => canMove ? `<div class="pmv">${html}<div class="pmvb"><button data-mv="${kind}:${id}:-1" aria-label="Move up">▲</button><button data-mv="${kind}:${id}:1" aria-label="Move down">▼</button></div></div>` : html;
+  const mv = (kind, id, html) => canMove ? `<div class="pmv" data-kind="${kind}" data-id="${id}">${html}<div class="pdrag" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</div></div>` : html;
   const oCard = o => isDoneO(o) ? orderCard(o) : mv('order', o.id, orderCard(o));
   const tRow = t => t.done ? taskRow(t) : mv('task', t.id, taskRow(t));
   $('#view').innerHTML = `<div class="ptop"><span></span><button class="link" id="p-done">Earlier done orders →</button></div>` +
@@ -634,19 +635,27 @@ async function procScreen() {
         <div>${colHead('ti-building-store', 'Shop orders', G.shop, t => t.done)}${G.shop.map(tRow).join('') || empty('shop orders')}</div>
       </div></section>`; }).join('');
   $('#p-done').onclick = () => { P.tab = 'done'; procScreen(); };
-  document.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => safe(async () => {
-    const [kind, id, dir] = b.dataset.mv.split(':');
-    let list;
-    for (const G of Object.values(groups)) {
-      const L = kind === 'order' ? G.orders.filter(o => !isDoneO(o)) : [G.prep, G.shop].map(x => x.filter(t => !t.done)).find(x => x.some(t => t.id == id));
-      if (L?.some(x => x.id == id)) { list = L; break; }
-    }
-    const i = list.findIndex(x => x.id == id), j = i + Number(dir);
-    if (j < 0 || j >= list.length) return;
-    [list[i], list[j]] = [list[j], list[i]];
-    await q(sb.rpc('ord_set_priority', { p_kind: kind, p_ids: list.map(x => x.id) }));
-    procScreen();
-  }));
+  document.querySelectorAll('.pdrag').forEach(h => h.onpointerdown = ev => {
+    ev.preventDefault();
+    const el = h.parentElement, col = el.parentElement;
+    el.classList.add('dragging'); P.modal = true;   // listen on window: moving the card in the page drops pointer capture
+    const before = [...col.querySelectorAll(':scope > .pmv')].map(x => x.dataset.id).join();
+    const move = e => {
+      const sibs = [...col.querySelectorAll(':scope > .pmv')].filter(x => x !== el);
+      const next = sibs.find(x => { const r = x.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+      if (next) { if (el.nextElementSibling !== next) col.insertBefore(el, next); }
+      else if (sibs.length) { const last = sibs[sibs.length - 1]; if (last.nextElementSibling !== el) last.after(el); }
+    };
+    const up = () => safe(async () => {
+      removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+      el.classList.remove('dragging'); P.modal = false;
+      const ids = [...col.querySelectorAll(':scope > .pmv')].map(x => x.dataset.id);
+      if (ids.join() === before) return;
+      await q(sb.rpc('ord_set_priority', { p_kind: el.dataset.kind, p_ids: ids.map(Number) }));
+      procScreen();
+    });
+    addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+  });
   document.querySelectorAll('[data-o]').forEach(b => b.onclick = () => safe(async () => {
     const o = orders.find(x => x.id == b.dataset.o);
     if (!o.seen_at) { await q(sb.rpc('ord_mark_seen', { p_kind: 'order', p_id: o.id })); o.seen_at = new Date().toISOString(); b.querySelector('.tg-new')?.remove(); }
