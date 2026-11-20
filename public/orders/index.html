@@ -121,6 +121,19 @@
   .mbox { background: #fff; border-radius: 18px; width: 100%; max-width: 620px; padding: 22px 24px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
   .mh { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
   .mt { font-size: 24px; font-weight: 800; } .ms { color: #888; font-size: 14px; margin-top: 2px; }
+  .pbtn { border: 1px solid #d8d4c8; background: #fff; border-radius: 99px; padding: 7px 14px; font-size: 14px; font-weight: 600; color: #444; flex: none; margin-left: auto; margin-right: 8px; }
+  .pbtn:hover { background: #f4f2ec; }
+  #print { display: none; }
+  @media print {
+    body { background: #fff !important; } body > *:not(#print) { display: none !important; }
+    #print th { background: none !important; }
+    #print { display: block; color: #000; font: 12pt/1.4 Arial, sans-serif; }
+    #print h1 { font-size: 20pt; margin: 0; } #print .pr-sub { margin: 2px 0 12px; color: #333; }
+    #print .pr-note { border: 1px solid #000; padding: 8px 10px; margin-bottom: 12px; white-space: pre-wrap; }
+    #print table { width: 100%; border-collapse: collapse; } #print th, #print td { border-bottom: 1px solid #999; padding: 6px 4px; text-align: left; vertical-align: top; }
+    #print th { border-bottom: 2px solid #000; font-size: 10pt; text-transform: uppercase; } #print .r { text-align: right; } #print .pk { font-size: 10.5pt; color: #222; padding-left: 14px; }
+    #print .pr-foot { margin-top: 14px; font-size: 9pt; color: #555; }
+  }
   .mx { border: 0; background: #f0efea; width: 38px; height: 38px; border-radius: 50%; font-size: 16px; color: #555; flex: none; }
   .mnote { background: #fff6cf; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-weight: 600; }
   .wl { border-top: 1px solid #eee; }
@@ -250,6 +263,7 @@
   </div>
   <div id="view"></div>
 </main>
+<div id="print"></div>
 
 <script>
 const sb = supabase.createClient('https://bcdibbhmiwccvvmryqze.supabase.co', 'sb_publishable_YAtej3hTvSDPHPLQVYk-Ig_K4rxgiYr',
@@ -461,6 +475,7 @@ function drawOrder() {
     <div class="actions">
       <button class="big" id="o-save">${o.id ? 'Save changes' : 'Save order'}</button>
       <button class="btn" id="o-back">${o.id ? 'Back' : 'Cancel'}</button>
+      ${o.id ? '<button class="btn" id="o-print">Print / PDF</button>' : ''}
       ${o.id && o.status === 'new' ? '<button class="btn red" id="o-del-btn" style="margin-left:auto">Delete order</button>' : ''}
     </div>
   </div>
@@ -474,6 +489,7 @@ function drawOrder() {
   $('#o-notes').oninput = e => o.notes = e.target.value;
   $('#o-add').onclick = () => { o.lines.push({ item_id: null, qty_ordered: '', unit: '' }); drawLines(true); };
   $('#o-save').onclick = saveOrder;
+  if ($('#o-print')) $('#o-print').onclick = () => safe(() => printOrder(o.id));
   if ($('#o-back')) $('#o-back').onclick = () => go('home');
   if ($('#o-del-btn')) $('#o-del-btn').onclick = () => safe(async () => {
     if (!confirm('Delete order #' + o.id + '?')) return;
@@ -692,6 +708,7 @@ function modal(html) {
   document.body.appendChild(m); P.modal = true;
   const close = () => { m.remove(); P.modal = false; };
   m.onclick = e => { if (e.target === m) close(); };
+  m.querySelector('[data-print]')?.addEventListener('click', e => safe(() => printOrder(e.currentTarget.dataset.print)));
   return { m, close };
 }
 const tagHtml = l => {
@@ -703,6 +720,22 @@ const tagHtml = l => {
   if (l.orig_item_id && l.orig_item_id != l.item_id) t.push(`<span class="was">was ${esc(item(l.orig_item_id)?.name)}</span>`);
   return t.join('');
 };
+/* Print / save as PDF: the browser's print window has "Save as PDF" */
+async function printOrder(id) {
+  const o = await q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('id', id).single());
+  const lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position);
+  const pk = await packingFor(lines.map(l => l.id));
+  const sent = lines.some(l => l.qty_sent != null);
+  $('#print').innerHTML = `<h1>${esc(cust(o.customer_id)?.name)}</h1>
+    <div class="pr-sub">Order #${o.id} · prepare ${ukDate(o.prep_date)} · delivery ${ukDate(o.delivery_date)}</div>
+    ${o.notes ? `<div class="pr-note">${esc(o.notes)}</div>` : ''}
+    <table><thead><tr><th>Item</th><th class="r">Ordered</th>${sent ? '<th class="r">Sent</th><th class="r">Trays</th>' : ''}</tr></thead><tbody>
+    ${lines.map(l => `<tr><td><b>${esc(item(l.item_id)?.name)}</b>${(pk[l.id] || []).map(r => `<div class="pk">${r.qty_planned != null ? qf(r.qty_planned) + ' × ' : ''}${esc(r.how)}${r.qty_packed != null ? ` — ${qf(r.qty_packed)} packed${r.weight != null ? ', ' + qf(r.weight) + ' kg' : ''}` : ''}</div>`).join('')}</td>
+      <td class="r">${l.qty_ordered != null ? qf(l.qty_ordered) + ' ' + U(l.unit) : ''}</td>${sent ? `<td class="r">${l.qty_sent != null ? qf(l.qty_sent) + ' ' + U(l.sent_unit) : ''}</td><td class="r">${l.trays || ''}</td>` : ''}</tr>`).join('')}
+    </tbody></table><div class="pr-foot">Em H Butchers · printed ${new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>`;
+  const t = document.title; document.title = `Order ${o.id} - ${cust(o.customer_id)?.name || ''}`;   // becomes the PDF file name
+  window.print(); document.title = t;
+}
 async function openWeigh(o) {
   const lines = o.lines.filter(l => !(l.removed && l.moved_to));
   const ids = lines.map(l => l.id), pk = await packingFor(ids), rs = await resaleFor(ids);
@@ -725,7 +758,7 @@ async function openWeigh(o) {
   };
   const { m, close } = modal(`
     <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivery ${ukDate(o.delivery_date)}</div></div>
-      <button class="mx" title="Close">✕</button></div>
+      <button class="pbtn" data-print="${o.id}">Print / PDF</button><button class="mx" title="Close">✕</button></div>
     ${o.notes ? `<div class="mnote">${esc(o.notes)}</div>` : ''}
     <button type="button" class="rsw ${resaleOn ? 'on' : ''}" data-rs><span class="knob"></span><span class="rsl">Resale prices: <b>${resaleOn ? 'ON' : 'OFF'}</b></span></button>
     <div class="wl"></div>
@@ -839,7 +872,7 @@ async function openDone(o) {
   const prs = o.resale_on ? await packResaleFor(Object.values(pk).flat().map(r => r.id)) : {};
   const { m, close } = modal(`
     <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivery ${ukDate(o.delivery_date)} · done by ${esc(uname(o.fulfilled_by))}</div></div>
-      <button class="mx">✕</button></div>
+      <button class="pbtn" data-print="${o.id}">Print / PDF</button><button class="mx">✕</button></div>
     <div class="wl">
       <div class="wrow wh"><span>Item</span><span>Ordered</span><span>Sent kg</span><span>Trays</span><span></span></div>
       ${o.lines.map(l => `<div class="wrow"><span class="wn">${esc(item(l.item_id)?.name)}<span class="tgs">${tagHtml(l)}</span></span>
