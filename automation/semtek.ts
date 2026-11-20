@@ -375,3 +375,34 @@ export async function inspectPaymentWrite(customerLike: string) {
     };
   } finally { await pool.close(); }
 }
+
+/** Record one real payment on account #511 (35 Kipling St, Fried YMF): £1,000 cash, today, Raffi/back office.
+ *  Captures before-values, writes payment + balance in one transaction, reads back to confirm. */
+export async function writeKiplingPayment() {
+  const pool = await semtekConnect();
+  try {
+    const sel = `select CustomerID, AccountNo, PosName, AccountBalance, LastPaymentDate from Customers where CustomerID = 511`;
+    const before = (await pool.request().query(sel)).recordset[0];
+    if (!before) throw new Error('Customer #511 not found — aborting, nothing written.');
+
+    const w = await pool.request().query(`
+      set xact_abort on;
+      begin tran;
+        declare @now datetime = getdate();
+        declare @amt money = 1000;
+        declare @cust int = 511;
+        declare @pid nvarchar(21) = format(@now,'yyyyMMddHHmmss') + '000004';
+        insert into Payments (PaymentID,OperatorID,Station,CustomerID,Date,Cash,Cheque,CreditCard,Vouchers,Coupons,Bacs,Amount,Notes)
+          values (@pid, 4, 0, @cust, @now, @amt, 0, 0, 0, 0, 0, @amt, '');
+        update Customers set AccountBalance = AccountBalance + @amt, LastPaymentDate = @now where CustomerID = @cust;
+      commit;
+      select @pid as payment_id, @now as dt;`);
+    const pid = (w.recordset[0] as { payment_id: string }).payment_id;
+
+    const after = (await pool.request().query(sel)).recordset[0];
+    const payment = (await pool.request().query(
+      `select PaymentID, OperatorID, Station, CustomerID, Date, Cash, Amount, Notes from Payments where PaymentID = '${pid}'`)).recordset[0];
+    return { payment_id: pid, before, after, payment,
+      undo: `delete from Payments where PaymentID='${pid}'; update Customers set AccountBalance = ${before.AccountBalance}, LastPaymentDate = '${before.LastPaymentDate ? new Date(before.LastPaymentDate as string).toISOString() : ''}' where CustomerID=511;` };
+  } finally { await pool.close(); }
+}
