@@ -16,7 +16,7 @@ import { addDays } from '../src/lib/recon';
 import { pullStripe, STRIPE_LABEL, type PullResult } from './stripe';
 import { gatherReport, renderReport } from './report';
 import { pullPaymentsense, paymentsenseConfigured } from './paymentsense';
-import { discoverSemtek, compareSemtek, semtekConfigured, networkCheck, pullSemtek, checkSemtekPerms } from './semtek';
+import { discoverSemtek, compareSemtek, semtekConfigured, networkCheck, pullSemtek, checkSemtekPerms, inspectPaymentWrite } from './semtek';
 
 const env = process.env;
 const what = (process.argv[2] || 'both').toLowerCase();
@@ -55,13 +55,17 @@ async function main() {
     return;
   }
 
-  if (what === 'semtek-perms') {
+  if (what === 'semtek-perms' || what === 'semtek-inspect-payment') {
     let ok = true;
-    if (!semtekConfigured()) { await log({ step: 'semtek-perms', ok: false, message: 'No Semtek database details set.' }); ok = false; }
-    else if (env.ZEROTIER_OK !== 'true') { await log({ step: 'semtek-perms', ok: false, message: 'Couldn’t join the shop ZeroTier network (is your PC disconnected from Shop?).' }); ok = false; }
+    const step = what;
+    if (!semtekConfigured()) { await log({ step, ok: false, message: 'No Semtek database details set.' }); ok = false; }
+    else if (env.ZEROTIER_OK !== 'true') { await log({ step, ok: false, message: 'Couldn’t join the shop ZeroTier network (is your PC disconnected from Shop?).' }); ok = false; }
     else {
-      try { await log({ step: 'semtek-perms', ok: true, ...(await checkSemtekPerms()) }); }
-      catch (e) { ok = false; await log({ step: 'semtek-perms', ok: false, message: (e as Error).message, network: await networkCheck().catch(x => String(x)) }); }
+      try {
+        if (what === 'semtek-perms') await log({ step, ok: true, ...(await checkSemtekPerms()) });
+        else await log({ step, ok: true, ...(await inspectPaymentWrite(env.CUSTOMER_LIKE || '%Kipling%')) });
+      }
+      catch (e) { ok = false; await log({ step, ok: false, message: (e as Error).message, network: await networkCheck().catch(x => String(x)) }); }
     }
     await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
     if (!ok) process.exitCode = 1;

@@ -351,3 +351,27 @@ export async function checkSemtekPerms() {
     return { who, roles, flags, can_write_anywhere: canWrite };
   } finally { await pool.close(); }
 }
+
+/** Read-only investigation of how Semtek records a payment: triggers, the balance mechanism, the exact columns, and the target customer. Writes nothing. */
+export async function inspectPaymentWrite(customerLike: string) {
+  const pool = await semtekConnect();
+  try {
+    const q = async (sql: string) => (await pool.request().query(sql)).recordset as Record<string, unknown>[];
+    return {
+      triggers: await q(`select OBJECT_NAME(parent_id) as tbl, name, is_disabled, OBJECT_DEFINITION(object_id) as def
+        from sys.triggers where OBJECT_NAME(parent_id) in ('Payments','Customers','Sales')`),
+      payment_procs: await q(`select p.name, OBJECT_DEFINITION(p.object_id) as def from sys.procedures p
+        where p.name like '%pay%' or p.name like '%receipt%'`),
+      payments_columns: await q(`select COLUMN_NAME, DATA_TYPE,
+        COLUMNPROPERTY(OBJECT_ID('dbo.Payments'), COLUMN_NAME, 'IsIdentity') as is_identity, COLUMN_DEFAULT
+        from INFORMATION_SCHEMA.COLUMNS where TABLE_NAME='Payments' order by ORDINAL_POSITION`),
+      recent_payments: await q(`select top 8 PaymentID, OperatorID, Station, CustomerID, Date, Cash, Cheque, CreditCard, Vouchers, Coupons, Bacs, Amount, Notes
+        from Payments order by Date desc`),
+      operators: await q(`select OperatorID, Operator, FirstName, LastName, Active from Operators where Active = 1`),
+      customer: await q(`select CustomerID, AccountNo, LastName, PosName, Company, AccountBalance, LastPaymentDate, LastSaleDate
+        from Customers where AccountNo like '${customerLike}' or PosName like '${customerLike}' or LastName like '${customerLike}'`),
+      recent_transfers: await q(`select top 5 TransferID, SourcePaymentID, TargetPaymentID, Date, Amount, SourceCustomerID, OperatorID, Station, Notes
+        from PaymentTransfers order by Date desc`),
+    };
+  } finally { await pool.close(); }
+}
