@@ -19,12 +19,15 @@ export function semtekConfigured() { return !!(env.SEMTEK_SQL_HOST && env.SEMTEK
 
 /** Connect, retrying for a couple of minutes: a fresh ZeroTier member can take a while to find a route to the shop. */
 export async function semtekConnect(database = env.SEMTEK_SQL_DB || undefined) {
+  const host = env.SEMTEK_SQL_HOST!.trim().split('\\')[0].split(/[,:]/)[0];
   let last: unknown;
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  for (let attempt = 1; attempt <= 12; attempt++) {
+    // prod ZeroTier into building a direct path to the till before each attempt (traffic triggers hole-punching)
+    try { execSync(`ping -c 2 -W 2 ${host}`, { stdio: 'ignore', timeout: 8000 }); } catch { /* path not up yet */ }
     try { return await connectOnce(database); }
-    catch (e) { last = e; console.log(`Semtek connect attempt ${attempt} failed: ${(e as Error).message}`); await new Promise(r => setTimeout(r, 15000)); }
+    catch (e) { last = e; console.log(`Semtek connect attempt ${attempt} failed: ${(e as Error).message}`); await new Promise(r => setTimeout(r, 8000)); }
   }
-  throw new Error(`${(last as Error).message} (tried 5 times over ~3 minutes; is DATA-PC on, and is your own PC disconnected from the Shop network?)`);
+  throw new Error(`${(last as Error).message} (tried 12 times over ~6 minutes; is DATA-PC on, and is your own PC disconnected from the Shop network?)`);
 }
 
 async function connectOnce(database?: string) {
