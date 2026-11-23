@@ -213,6 +213,20 @@
   .ptask .ttx { flex: 1; cursor: default; } .ptask .ttx[data-seen]:not([data-seen=""]) { cursor: pointer; }
   .ptask.done { background: #f3f3ef; box-shadow: none; } .ptask.done .ttx { text-decoration: line-through; color: #999; } .ptask.done .tick { color: #1f7a3a; }
   .pempty { color: #aaa; font-size: 14px; padding: 8px 2px; }
+  .ptop .pdays { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pdt { display: flex; align-items: baseline; gap: 6px; border: 1px solid #ddd8cb; background: #fff; border-radius: 12px; padding: 9px 14px; font-size: 15px; color: #333; }
+  .pdt span { color: #888; font-size: 13px; } .pdt i { font-style: normal; background: #e0a800; color: #fff; border-radius: 99px; padding: 1px 8px; font-size: 13px; font-weight: 700; }
+  .pdt.on { background: #7a1f1f; border-color: #7a1f1f; color: #fff; } .pdt.on span { color: #f0d6d6; } .pdt.on i { background: #fff; color: #7a1f1f; }
+  .pdt.late { border-color: #e9b9b5; color: #b3261e; } .pdt.late i { background: #b3261e; } .pdt.late.on { background: #b3261e; border-color: #b3261e; color: #fff; }
+  .pmain { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 22px; align-items: start; } .pmain.solo { grid-template-columns: minmax(0, 1fr); max-width: 760px; }
+  .plist { margin-bottom: 18px; } .pch { padding-bottom: 6px; border-bottom: 2px solid #ddd9cc; margin-bottom: 10px; }
+  .pcn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 18px; } .pcn > span:first-child { margin-right: 2px; }
+  .pcw { margin-left: auto; font-size: 13px; font-weight: 700; color: #8a6d00; background: #fff3c4; border-radius: 99px; padding: 2px 9px; }
+  .tg-late { background: #fbe3e1 !important; color: #b3261e !important; }
+  .pcl { margin-top: 6px; font-size: 15px; color: #444; } .pcl > div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-top: 1px solid #f0eee8; } .pcl > div:first-child { border-top: 0; } .pcl b { white-space: nowrap; }
+  .pcnote { margin-top: 8px; background: #fff8dc; border-radius: 8px; padding: 6px 10px; color: #6b5300; font-size: 13px; white-space: pre-wrap; }
+  .pfold { margin-top: 4px; } .pfold summary { cursor: pointer; color: #1f7a3a; font-weight: 700; font-size: 14px; padding: 6px 2px; } .pfold[open] summary { margin-bottom: 6px; }
+  @media (max-width: 820px) { .pmain { grid-template-columns: minmax(0, 1fr); } }
   .late-t { color: #b3261e; }
   .tg-new { background: #1f4f7a; color: #fff; }
   .hbtns { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -637,8 +651,8 @@ async function procScreen() {
   const orderCard = o => {
     const live = o.lines.filter(l => !l.removed), w = live.filter(l => l.qty_sent != null).length;
     if (isDoneO(o)) return `<button class="pcard done" data-o="${o.id}"><div class="pcn">✓ ${esc(cust(o.customer_id)?.name)}</div><div class="pci">done</div></button>`;
-    return `<button class="pcard" data-o="${o.id}"><div class="pcn">${esc(cust(o.customer_id)?.name)}${!o.seen_at ? ' <span class="tg tg-new">new</span>' : ''}${w ? ` <span class="tg tg-ed">${w} of ${live.length} weighed</span>` : ''}</div>
-      <div class="pci">${itemsShort(o, false)}${o.prep_date < today ? ` · <b class="late-t">${ukDate(o.prep_date)}</b>` : ''}</div>${o.notes ? `<div class="pcnote">${esc(o.notes)}</div>` : ''}</button>`;
+    return `<button class="pcard" data-o="${o.id}"><div class="pcn"><span>${esc(cust(o.customer_id)?.name)}</span>${!o.seen_at ? '<span class="tg tg-new">new</span>' : ''}${o.prep_date < today ? `<span class="tg tg-late">${ukDate(o.prep_date)}</span>` : ''}${w ? `<span class="pcw">${w}/${live.length} weighed</span>` : ''}</div>
+      <div class="pcl">${live.map(l => `<div><span>${esc(item(l.item_id)?.name)}</span><b>${l.qty_sent != null ? '✓ ' : ''}${qf(l.qty_ordered)} ${U(l.unit)}</b></div>`).join('')}</div>${o.notes ? `<div class="pcnote">${esc(o.notes)}</div>` : ''}</button>`;
   };
   const taskRow = t => `<div class="ptask ${t.done ? 'done' : ''}"><button class="tick" data-t="${t.id}" data-dn="${t.done ? 1 : 0}" aria-label="${t.done ? 'Untick' : 'Tick'}"><span class="cbx">${t.done ? '✓' : ''}</span></button>
       <span class="ttx" data-seen="${!t.seen_at && !t.done ? t.id : ''}">${esc(t.text)}${!t.seen_at && !t.done ? ' <span class="tg tg-new">new</span>' : ''}${t.due_date < today ? ` · <b class="late-t">${ukDate(t.due_date)}</b>` : ''}</span></div>`;
@@ -648,14 +662,24 @@ async function procScreen() {
   const mv = (kind, id, html) => canMove ? `<div class="pmv" data-kind="${kind}" data-id="${id}">${html}<div class="pdrag" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</div></div>` : html;
   const oCard = o => isDoneO(o) ? orderCard(o) : mv('order', o.id, orderCard(o));
   const tRow = t => t.done ? taskRow(t) : mv('task', t.id, taskRow(t));
-  $('#view').innerHTML = `<div class="ptop"><span></span><button class="link" id="p-done">Earlier done orders →</button></div>` +
-    keys.map(k => { const G = groups[k]; return `<section class="pday ${k === 'late' ? 'late' : ''}">
-      <div class="pdh"><span class="pdn">${dayName(k)}</span><span class="pds">${daySub(k)}</span></div>
-      <div class="pcols">
-        <div>${colHead('ti-truck-delivery', 'Orders', G.orders, isDoneO)}${G.orders.map(oCard).join('') || empty('orders')}</div>
-        <div>${colHead('ti-list-check', 'Preparation tasks', G.prep, t => t.done)}${G.prep.map(tRow).join('') || empty('tasks')}</div>
-        <div>${colHead('ti-building-store', 'Shop orders', G.shop, t => t.done)}${G.shop.map(tRow).join('') || empty('shop orders')}</div>
-      </div></section>`; }).join('');
+  // one day at a time: day tabs on top, orders on the left, tasks + shop orders on the right, done items folded away
+  const openCount = G => G.orders.filter(o => !isDoneO(o)).length + G.prep.filter(t => !t.done).length + G.shop.filter(t => !t.done).length;
+  if (!groups[P.day]) P.day = groups.late ? 'late' : today;
+  const G = groups[P.day];
+  const list = (title, items, isDone, card, none) => {
+    const open = items.filter(x => !isDone(x)), done = items.filter(isDone);
+    return `<div class="plist"><div class="pch"><span>${title}</span><span>${open.length ? open.length + ' to do' : items.length ? 'all done ✓' : ''}</span></div>
+      <div class="pl">${open.map(card).join('')}</div>${!items.length ? `<div class="pempty">${none}</div>` : ''}
+      ${done.length ? `<details class="pfold"><summary>Done (${done.length})</summary>${done.map(card).join('')}</details>` : ''}</div>`;
+  };
+  const side = G.prep.length || G.shop.length;
+  $('#view').innerHTML = `<div class="ptop"><div class="pdays">${keys.map(k => { const n = openCount(groups[k]); return `<button class="pdt ${k === P.day ? 'on' : ''} ${k === 'late' ? 'late' : ''}" data-day="${k}"><b>${dayName(k)}</b><span>${k === 'late' ? '' : daySub(k)}</span>${n ? `<i>${n}</i>` : ''}</button>`; }).join('')}</div>
+      <button class="link" id="p-done">Earlier done orders →</button></div>
+    <div class="pmain ${side ? '' : 'solo'}">
+      ${list('Orders', G.orders, isDoneO, oCard, 'No orders for this day')}
+      ${side ? `<div>${G.prep.length ? list('Preparation tasks', G.prep, t => t.done, tRow, '') : ''}${G.shop.length ? list('Shop orders', G.shop, t => t.done, tRow, '') : ''}</div>` : ''}
+    </div>`;
+  document.querySelectorAll('.pdays [data-day]').forEach(b => b.onclick = () => { P.day = b.dataset.day; procScreen(); });
   $('#p-done').onclick = () => { P.tab = 'done'; procScreen(); };
   document.querySelectorAll('.pdrag').forEach(h => h.onpointerdown = ev => {
     ev.preventDefault();
