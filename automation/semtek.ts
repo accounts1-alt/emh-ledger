@@ -433,3 +433,40 @@ export async function diagCard(amount: number, from: string, to: string) {
     };
   } finally { await pool.close(); }
 }
+
+/** Generic: record a payment on a customer account (used by the gateway command queue).
+ *  params: { customer_id, cash?, cheque?, credit_card?, vouchers?, coupons?, bacs?, operator_id?, station?, note? } */
+export async function writePayment(p: Record<string, unknown>) {
+  const customerId = Number(p.customer_id);
+  if (!Number.isInteger(customerId) || customerId <= 0) throw new Error('write_payment needs a valid customer_id');
+  const cash = Number(p.cash || 0), cheque = Number(p.cheque || 0), cc = Number(p.credit_card || 0),
+        vouchers = Number(p.vouchers || 0), coupons = Number(p.coupons || 0), bacs = Number(p.bacs || 0);
+  const t = Math.round((cash + cheque + cc + vouchers + coupons + bacs) * 100) / 100;
+  if (!(Math.abs(t) > 0)) throw new Error('write_payment needs a non-zero amount');
+  const operator = Number(p.operator_id || 4), station = Number(p.station || 0);
+  const note = String(p.note || '').slice(0, 200);
+  const pool = await semtekConnect();
+  try {
+    const before = (await pool.request().query(`select CustomerID, AccountNo, PosName, AccountBalance, LastPaymentDate from Customers where CustomerID = ${customerId}`)).recordset[0];
+    if (!before) throw new Error(`Customer #${customerId} not found — nothing written`);
+    const dup = (await pool.request().query(`select PaymentID from Payments where CustomerID = ${customerId} and Amount = ${t} and cast(Date as date) = cast(getdate() as date)`)).recordset;
+    if (dup.length) return { skipped: true, reason: `A £${t.toFixed(2)} payment for customer #${customerId} already exists today`, existing: dup };
+    const w = await pool.request()
+      .input('cust', sql.Int, customerId).input('op', sql.Int, operator).input('st', sql.Int, station)
+      .input('cash', sql.Money, cash).input('chq', sql.Money, cheque).input('cc', sql.Money, cc)
+      .input('vou', sql.Money, vouchers).input('cou', sql.Money, coupons).input('bacs', sql.Money, bacs)
+      .input('amt', sql.Money, t).input('note', sql.NVarChar, note)
+      .query(`set xact_abort on; begin tran;
+        declare @now datetime = getdate();
+        declare @pid nvarchar(21) = format(@now,'yyyyMMddHHmmss') + right('000'+cast(@st as varchar(5)),3) + right('000'+cast(@op as varchar(5)),3);
+        insert into Payments (PaymentID,OperatorID,Station,CustomerID,Date,Cash,Cheque,CreditCard,Vouchers,Coupons,Bacs,Amount,Notes)
+          values (@pid,@op,@st,@cust,@now,@cash,@chq,@cc,@vou,@cou,@bacs,@amt,@note);
+        update Customers set AccountBalance = AccountBalance + @amt, LastPaymentDate = @now where CustomerID = @cust;
+        commit; select @pid as pid;`);
+    const pid = (w.recordset[0] as { pid: string }).pid;
+    const after = (await pool.request().query(`select AccountBalance from Customers where CustomerID = ${customerId}`)).recordset[0];
+    return { payment_id: pid, customer_id: customerId, account_no: before.AccountNo, amount: t,
+      before_balance: before.AccountBalance, after_balance: after.AccountBalance,
+      undo: `delete from Payments where PaymentID='${pid}'; update Customers set AccountBalance=${before.AccountBalance} where CustomerID=${customerId};` };
+  } finally { await pool.close(); }
+}
