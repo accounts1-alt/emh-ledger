@@ -876,8 +876,17 @@ function labelReader(m, lines, plan, onFill) {
     const go = box.querySelector('[data-lbgo]'); go.disabled = true; go.textContent = 'Reading…';
     try {
       const T = targets();
-      const { data, error } = await sb.functions.invoke('labels', { body: { images: photos, expect: T.map(t => t.name) } });
-      if (error) { let msg = error.message; try { msg = (await error.context.json()).error || msg; } catch {} throw new Error(msg); }
+      // Gemini is sometimes busy: try up to 5 times, waiting a little longer each time
+      let data;
+      for (let tryNo = 1; ; tryNo++) {
+        const res = await sb.functions.invoke('labels', { body: { images: photos, expect: T.map(t => t.name) } });
+        if (res.error) { let msg = res.error.message; try { msg = (await res.error.context.json()).error || msg; } catch {}
+          if (!/failed to send|fetch/i.test(msg) || tryNo >= 3) throw new Error(/failed to send|fetch/i.test(msg) ? 'Could not reach the label reader – check the internet connection and try again' : msg); }
+        else if (!res.data?.busy) { data = res.data; break; }
+        if (tryNo >= 5) throw new Error('Gemini is very busy right now – please try again in a few minutes');
+        for (let sLeft = [0, 5, 10, 20, 30][tryNo]; sLeft > 0; sLeft--) { if (go.isConnected) go.textContent = `Gemini busy – trying again in ${sLeft}s (${tryNo + 1}/5)`; await new Promise(r => setTimeout(r, 1000)); }
+        if (go.isConnected) go.textContent = `Reading… (try ${tryNo + 1}/5)`;
+      }
       if (data?.error) throw new Error(data.error);
       const seen = new Set();
       result = (data.labels || []).map((x, i) => {
