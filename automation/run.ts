@@ -123,6 +123,32 @@ async function main() {
     return;
   }
 
+  if (what === 'mint-id') {
+    // Generate a brand-new ZeroTier identity for a business, store its secret in the
+    // hub vault, and record the 10-char address on the connection to hand to that
+    // business's ZeroTier admin. Needs only the zerotier-idtool binary, no join.
+    let ok = true;
+    const connId = env.CONNECTION_ID;
+    if (!connId) { await log({ step: 'mint-id', ok: false, message: 'No connection id was given.' }); ok = false; }
+    else {
+      try {
+        const { execSync } = await import('node:child_process');
+        const fs = await import('node:fs');
+        const idtool = fs.existsSync('/usr/sbin/zerotier-idtool') ? '/usr/sbin/zerotier-idtool' : 'zerotier-idtool';
+        execSync(`${idtool} generate /tmp/zt.secret /tmp/zt.public`, { stdio: 'ignore' });
+        const secret = fs.readFileSync('/tmp/zt.secret', 'utf8').trim();
+        const address = secret.split(':')[0];
+        if (!/^[0-9a-f]{10}$/.test(address)) throw new Error(`Unexpected identity format from zerotier-idtool`);
+        const { error } = await supabase.rpc('gateway_store_zt_secret', { p_connection: connId, p_address: address, p_secret: secret });
+        if (error) throw new Error(error.message);
+        await log({ step: 'mint-id', ok: true, address });
+      } catch (e) { ok = false; await log({ step: 'mint-id', ok: false, message: (e as Error).message }); }
+    }
+    await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
+    if (!ok) process.exitCode = 1;
+    return;
+  }
+
   if (what === 'gateway') {
     // Drain the portal's command queue (and nothing else). The portal pokes this
     // whenever an app leaves a command, so write-payment and the like happen promptly.

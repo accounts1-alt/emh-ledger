@@ -31,6 +31,12 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run build -- --base=/emh-ledger/
+      # The Semtek Portal is its own self-contained app; it ships to /emh-ledger/portal/
+      - name: Build the portal
+        working-directory: portal
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build -- --base=/emh-ledger/portal/ --outDir ../dist/portal --emptyOutDir
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

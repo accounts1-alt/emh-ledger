@@ -7,12 +7,15 @@ on:
         description: 'both = download then email (+ backup), pull = download only, report = email only, backup = email a database backup now, semtek-discover = list the Semtek database tables, semtek-compare = check the database against imported Semtek files, paymentsense-test = download from Paymentsense without saving'
         default: both
         type: choice
-        options: [both, pull, report, backup, gateway, semtek-discover, semtek-compare, paymentsense-test, semtek-perms, semtek-inspect-payment, semtek-write-payment, semtek-diag-card]
+        options: [both, pull, report, backup, gateway, mint-id, semtek-discover, semtek-compare, paymentsense-test, semtek-perms, semtek-inspect-payment, semtek-write-payment, semtek-diag-card]
       day:
         description: 'Report on this day (YYYY-MM-DD). Leave blank for yesterday.'
         required: false
       auto:
         description: 'Set by the database timer; blank for manual runs.'
+        required: false
+      connection:
+        description: 'Connection id (used by mint-id to mint a ZeroTier robot identity for that business).'
         required: false
 
 concurrency: nightly
@@ -31,8 +34,12 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - name: Install browser (for Paymentsense)
-        if: inputs.what != 'report' && inputs.what != 'backup' && inputs.what != 'gateway' && inputs.what != 'semtek-discover' && inputs.what != 'semtek-compare' && inputs.what != 'semtek-perms' && inputs.what != 'semtek-inspect-payment' && inputs.what != 'semtek-write-payment' && inputs.what != 'semtek-diag-card'
+        if: inputs.what != 'report' && inputs.what != 'backup' && inputs.what != 'gateway' && inputs.what != 'mint-id' && inputs.what != 'semtek-discover' && inputs.what != 'semtek-compare' && inputs.what != 'semtek-perms' && inputs.what != 'semtek-inspect-payment' && inputs.what != 'semtek-write-payment' && inputs.what != 'semtek-diag-card'
         run: npx playwright-core install --with-deps chromium
+      # minting a robot identity needs the zerotier-idtool binary, but not the running daemon or a join
+      - name: Install ZeroTier (for minting a robot ID)
+        if: inputs.what == 'mint-id'
+        run: curl -fsSL https://install.zerotier.com | sudo bash >/dev/null
       # joins the shop's ZeroTier network for this run only, as the robot's own member (approved once by the network admin)
       - name: Join ZeroTier
         id: zt
@@ -64,6 +71,7 @@ jobs:
         env:
           REPORT_DAY: ${{ inputs.day }}
           AUTO: ${{ inputs.auto }}
+          CONNECTION_ID: ${{ inputs.connection }}
           ZEROTIER_OK: ${{ steps.zt.outcome == 'success' }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           STRIPE_SHOP_KEY: ${{ secrets.STRIPE_SHOP_KEY }}
