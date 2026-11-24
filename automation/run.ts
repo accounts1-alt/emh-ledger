@@ -152,6 +152,16 @@ async function main() {
       catch (e) { sem = { ...semBase, ok: false, message: `Couldn’t read Semtek: ${(e as Error).message}` }; await log({ step: 'semtek-network', network: await networkCheck().catch(x => String(x)) }); }
     }
     pulls.push(sem); await log({ step: 'pull', ...sem });
+
+    // one-off: capture how Semtek holds the £10.58 of 20 Nov, the next time the till connects (then stop)
+    if (sem.ok) {
+      const flag = await supabase.from('settings').select('value').eq('key', 'diag_card').maybeSingle();
+      const d = flag.data?.value as { amount: number; date: string } | null | undefined;
+      if (d) {
+        try { await log({ step: 'semtek-diag-card', ok: true, ...(await diagCard(d.amount, d.date, d.date)) }); } catch (e) { await log({ step: 'semtek-diag-card', ok: false, message: (e as Error).message }); }
+        await supabase.from('settings').update({ value: null, change_reason: 'diagnostic captured' }).eq('key', 'diag_card');
+      }
+    }
   }
 
   const ok = pulls.every(p => p.ok || p.message.startsWith('Not set up'));
