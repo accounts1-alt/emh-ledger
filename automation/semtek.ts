@@ -388,6 +388,11 @@ export async function writeKiplingPayment() {
     const before = (await pool.request().query(sel)).recordset[0];
     if (!before) throw new Error('Customer #511 not found — aborting, nothing written.');
 
+    // guard against double-entry: if a matching £1,000 cash payment already exists (e.g. entered in the back office), do nothing
+    const dup = (await pool.request().query(
+      `select PaymentID, Date, Cash, Amount from Payments where CustomerID = 511 and Cash = 1000 and Amount = 1000 and Date >= dateadd(day, -14, getdate())`)).recordset;
+    if (dup.length) return { skipped: true, reason: 'A matching £1,000 cash payment on #511 already exists — not written again.', existing: dup, before };
+
     const w = await pool.request().query(`
       set xact_abort on;
       begin tran;
