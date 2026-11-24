@@ -32,19 +32,25 @@ type Log = (s: Record<string, unknown>) => Promise<void>;
 // here: obey the on/paused/stopped switch, drain the command queue, and keep
 // the shop's connection status up to date so the portal can show it.
 
-// The on/paused/stopped switch. 'on' means Semtek may be touched this run.
-async function semtekAccess(): Promise<{ access: string; note: string | null }> {
-  const r = await supabase.from('gateway_control').select('semtek_access, note').eq('id', 1).maybeSingle();
-  const d = r.data as { semtek_access?: string; note?: string } | null;
-  return { access: (d?.semtek_access || 'on').toLowerCase(), note: d?.note ?? null };
+type Conn = { id: string; business_id: string; label: string; access: string; access_note: string | null };
+
+// The connection this worker can reach with its own GitHub ZeroTier join and
+// SEMTEK_* secrets — i.e. the business whose credentials live in env (Em H, for
+// now). When businesses whose logins live in the hub's Vault are onboarded, this
+// is where the per-business connect would be resolved instead.
+async function envConnection(): Promise<Conn | null> {
+  const r = await supabase.from('gateway_connections').select('id, business_id, label, access, access_note').eq('creds_source', 'env').order('created_at').limit(1).maybeSingle();
+  const d = r.data as Conn | null;
+  if (d) d.access = (d.access || 'on').toLowerCase();
+  return d;
 }
 
-// Record what the connection looks like right now, for the portal to display.
-async function setConnection(status: 'ok' | 'error' | 'paused' | 'stopped', message: string) {
+// Record what a connection looks like right now, for the portal to display.
+async function setConnection(connId: string, status: 'ok' | 'error' | 'paused' | 'stopped', message: string) {
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = { status, last_message: message.slice(0, 500), last_checked_at: now };
   if (status === 'ok') patch.last_ok_at = now;
-  await supabase.from('gateway_connection').update(patch).eq('id', 1);
+  await supabase.from('gateway_connections').update(patch).eq('id', connId);
 }
 
 // Run one queued command. Add a new `case` here for each new kind of job.
@@ -56,12 +62,12 @@ async function runCommand(kind: string, params: Record<string, unknown>) {
   }
 }
 
-// Drain pending commands from enabled apps. Returns a short tally for the report.
-async function processCommands(log: Log): Promise<{ done: number; failed: number; blocked: number }> {
+// Drain pending commands for one business. Returns a short tally for the report.
+async function processCommands(businessId: string, log: Log): Promise<{ done: number; failed: number; blocked: number }> {
   const tally = { done: 0, failed: 0, blocked: 0 };
   const q = await supabase.from('gateway_commands')
     .select('id, app_id, kind, params, gateway_apps!inner(name, enabled)')
-    .eq('status', 'pending').order('requested_at').limit(50);
+    .eq('status', 'pending').eq('business_id', businessId).order('requested_at').limit(50);
   const rows = (q.data || []) as Array<{ id: number; app_id: string; kind: string; params: Record<string, unknown> | null; gateway_apps: { name: string; enabled: boolean } }>;
   for (const cmd of rows) {
     const app = cmd.gateway_apps;
@@ -121,22 +127,24 @@ async function main() {
     // Drain the portal's command queue (and nothing else). The portal pokes this
     // whenever an app leaves a command, so write-payment and the like happen promptly.
     let ok = true;
-    const { access, note } = await semtekAccess();
-    if (access !== 'on') {
-      await setConnection(access === 'stopped' ? 'stopped' : 'paused', `Semtek access is ${access}${note ? ` — ${note}` : ''}. Commands left in the queue.`);
-      await log({ step: 'gateway', ok: false, skipped: true, access, note });
+    const conn = await envConnection();
+    if (!conn) {
+      await log({ step: 'gateway', ok: false, message: 'No Semtek connection is set up in the portal yet.' });
+    } else if (conn.access !== 'on') {
+      await setConnection(conn.id, conn.access === 'stopped' ? 'stopped' : 'paused', `Semtek access is ${conn.access}${conn.access_note ? ` — ${conn.access_note}` : ''}. Commands left in the queue.`);
+      await log({ step: 'gateway', ok: false, skipped: true, access: conn.access, note: conn.access_note });
     } else if (!semtekConfigured() || env.ZEROTIER_OK !== 'true') {
-      await setConnection('error', 'Couldn’t reach the shop’s ZeroTier network. Commands left in the queue.');
+      await setConnection(conn.id, 'error', 'Couldn’t reach the shop’s ZeroTier network. Commands left in the queue.');
       await log({ step: 'gateway', ok: false, message: 'No Semtek connection (is the PC off ZeroTier, or the robot member not yet authorised?).' });
       ok = false;
     } else {
       try {
-        const tally = await processCommands(log);
-        await setConnection('ok', `Gateway ran: ${tally.done} done, ${tally.failed} failed, ${tally.blocked} blocked.`);
+        const tally = await processCommands(conn.business_id, log);
+        await setConnection(conn.id, 'ok', `Gateway ran: ${tally.done} done, ${tally.failed} failed, ${tally.blocked} blocked.`);
         await log({ step: 'gateway', ok: true, ...tally });
       } catch (e) {
         ok = false;
-        await setConnection('error', (e as Error).message);
+        await setConnection(conn.id, 'error', (e as Error).message);
         await log({ step: 'gateway', ok: false, message: (e as Error).message, network: await networkCheck().catch(x => String(x)) });
       }
     }
@@ -237,25 +245,26 @@ async function main() {
     // means the robot leaves Semtek alone for the night.
     let sem: PullResult;
     const semBase = { source: 'semtek', label: 'Semtek', from: yesterday, to: yesterday, added: 0, updated: 0, seen: 0 };
-    const { access, note } = await semtekAccess();
+    const conn = await envConnection();
+    const access = conn?.access ?? 'on';
     if (!semtekConfigured()) sem = { ...semBase, ok: false, message: 'Not set up yet (no Semtek database details).' };
     else if (access !== 'on') {
-      sem = { ...semBase, ok: false, message: `Semtek access is ${access} in the portal${note ? ` — ${note}` : ''}, so nothing was read or written.` };
-      await setConnection(access === 'stopped' ? 'stopped' : 'paused', `Semtek access is ${access}${note ? ` — ${note}` : ''}.`);
+      sem = { ...semBase, ok: false, message: `Semtek access is ${access} in the portal${conn?.access_note ? ` — ${conn.access_note}` : ''}, so nothing was read or written.` };
+      if (conn) await setConnection(conn.id, access === 'stopped' ? 'stopped' : 'paused', `Semtek access is ${access}${conn.access_note ? ` — ${conn.access_note}` : ''}.`);
     }
     else if (env.ZEROTIER_OK !== 'true') {
       sem = { ...semBase, ok: false, message: 'Couldn’t join the shop’s ZeroTier network, so Semtek wasn’t downloaded. Import it by hand or run again.' };
-      await setConnection('error', 'Couldn’t join the shop’s ZeroTier network.');
+      if (conn) await setConnection(conn.id, 'error', 'Couldn’t join the shop’s ZeroTier network.');
     }
     else {
-      try { sem = await pullSemtek(yesterday); await setConnection('ok', `Read Semtek for ${yesterday}: ${sem.added} added, ${sem.updated} updated.`); }
-      catch (e) { sem = { ...semBase, ok: false, message: `Couldn’t read Semtek: ${(e as Error).message}` }; await setConnection('error', (e as Error).message); await log({ step: 'semtek-network', network: await networkCheck().catch(x => String(x)) }); }
+      try { sem = await pullSemtek(yesterday); if (conn) await setConnection(conn.id, 'ok', `Read Semtek for ${yesterday}: ${sem.added} added, ${sem.updated} updated.`); }
+      catch (e) { sem = { ...semBase, ok: false, message: `Couldn’t read Semtek: ${(e as Error).message}` }; if (conn) await setConnection(conn.id, 'error', (e as Error).message); await log({ step: 'semtek-network', network: await networkCheck().catch(x => String(x)) }); }
     }
     pulls.push(sem); await log({ step: 'pull', ...sem });
 
     // While we're connected, drain the portal's command queue (write-payment, etc.).
-    if (sem.ok) {
-      try { const tally = await processCommands(log); await log({ step: 'gateway', ok: true, ...tally }); }
+    if (sem.ok && conn) {
+      try { const tally = await processCommands(conn.business_id, log); await log({ step: 'gateway', ok: true, ...tally }); }
       catch (e) { await log({ step: 'gateway', ok: false, message: (e as Error).message }); }
     }
 

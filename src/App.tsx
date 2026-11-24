@@ -15,7 +15,6 @@ import FeesPage from './pages/Fees';
 import ReportsPage from './pages/Reports';
 import RecordsPage from './pages/Records';
 import ChangesPage from './pages/Changes';
-import PortalPage from './pages/Portal';
 import SettingsPage from './pages/Settings';
 
 const NAV: { group: string; items: [string, string][] }[] = [
@@ -23,11 +22,11 @@ const NAV: { group: string; items: [string, string][] }[] = [
   { group: 'Bring in', items: [['import', 'Import files'], ['count', 'Weekly count'], ['entry', 'Add entry'], ['floats', 'Floats']] },
   { group: 'Move money', items: [['posting', 'Posting'], ['banking', 'Banking'], ['fees', 'Fees']] },
   { group: 'Check', items: [['compare', 'Against Semtek'], ['reports', 'Reports'], ['records', 'Records'], ['changes', 'Change history']] },
-  { group: '', items: [['portal', 'Portal'], ['settings', 'Settings']] },
+  { group: '', items: [['settings', 'Settings']] },
 ];
 const PAGES: Record<string, () => JSX.Element> = {
   dashboard: Dashboard, import: ImportPage, compare: ComparePage, count: CountPage, entry: EntryPage, floats: FloatsPage,
-  posting: PostingPage, banking: BankingPage, fees: FeesPage, reports: ReportsPage, records: RecordsPage, changes: ChangesPage, portal: PortalPage, settings: SettingsPage,
+  posting: PostingPage, banking: BankingPage, fees: FeesPage, reports: ReportsPage, records: RecordsPage, changes: ChangesPage, settings: SettingsPage,
 };
 const route = () => { const h = location.hash.replace('#', ''); return PAGES[h] ? h : 'dashboard'; };
 
