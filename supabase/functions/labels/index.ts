@@ -6,7 +6,9 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const SB_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const MODEL = 'gemini-2.5-flash';
+// Google retires model names often: try the newest Flash first, then whatever Flash models this key can use.
+const PREFERRED = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'];
+let goodModel: string | null = null;
 const db = createClient(SB_URL, SERVICE, { auth: { persistSession: false } });
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -72,20 +74,37 @@ Deno.serve(async req => {
     if (!images.length) throw new Fail('Take at least one photo');
     if (images.length > 12) throw new Fail('At most 12 photos at a time');
 
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': k.value },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: PROMPT(expect) }, ...images.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d.replace(/^data:image\/\w+;base64,/, '') } }))] }],
-        generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
-      }),
+    const body = JSON.stringify({
+      contents: [{ parts: [{ text: PROMPT(expect) }, ...images.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d.replace(/^data:image\/\w+;base64,/, '') } }))] }],
+      generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
     });
-    const out = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      const m = out?.error?.message ?? r.status;
-      if (r.status === 400 && /API key/i.test(String(m))) throw new Fail('Gemini did not accept the key – check it in Settings');
-      throw new Fail(`Gemini said: ${m}`);
+    const call = (model: string) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': k.value }, body });
+    const gone = (status: number, m: string) => status === 404 || /no longer available|not found|is not supported|deprecated|retired/i.test(m);
+    let candidates = goodModel ? [goodModel, ...PREFERRED.filter(x => x !== goodModel)] : [...PREFERRED];
+    let listed = false, out: any = {}, r: Response | null = null, lastMsg = '';
+    for (let i = 0; i < candidates.length; i++) {
+      r = await call(candidates[i]);
+      out = await r.json().catch(() => ({}));
+      if (r.ok) { goodModel = candidates[i]; break; }
+      lastMsg = String(out?.error?.message ?? r.status);
+      if (r.status === 400 && /API key/i.test(lastMsg)) throw new Fail('Gemini did not accept the key – check it in Settings');
+      if (!gone(r.status, lastMsg)) throw new Fail(`Gemini said: ${lastMsg}`);
+      if (i === candidates.length - 1 && !listed) {
+        // ask Google which Flash models this key may use, newest first
+        listed = true;
+        const lr = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': k.value } });
+        const lj = await lr.json().catch(() => ({}));
+        const ver = (n: string) => Number((n.match(/gemini-(\d+(?:\.\d+)?)/) ?? [])[1] ?? 0);
+        const more = ((lj.models ?? []) as { name: string; supportedGenerationMethods?: string[] }[])
+          .filter(x => x.supportedGenerationMethods?.includes('generateContent'))
+          .map(x => x.name.replace(/^models\//, ''))
+          .filter(n => /^gemini-[\d.]+-flash(-latest)?$/.test(n) && !candidates.includes(n))
+          .sort((a, b) => ver(b) - ver(a));
+        candidates = [...candidates, ...more];
+      }
     }
+    if (!r?.ok) throw new Fail(`Gemini said: ${lastMsg}`);
     const text = out?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
     let parsed;
     try { parsed = JSON.parse(text); } catch { throw new Fail('Could not read the labels – try a clearer photo'); }
