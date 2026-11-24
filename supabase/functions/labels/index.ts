@@ -81,15 +81,28 @@ Deno.serve(async req => {
     const call = (model: string) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': k.value }, body });
     const gone = (status: number, m: string) => status === 404 || /no longer available|not found|is not supported|deprecated|retired/i.test(m);
+    const busy = (status: number, m: string) => status === 503 || status === 429 || status === 500 || /high demand|overloaded|try again|unavailable|resource has been exhausted/i.test(m);
+    const wait = (ms: number) => new Promise(res => setTimeout(res, ms));
+    let busyCount = 0;
+    const t0 = Date.now(), late = () => Date.now() - t0 > 70000;   // stay well inside the server time limit
     let candidates = goodModel ? [goodModel, ...PREFERRED.filter(x => x !== goodModel)] : [...PREFERRED];
     let listed = false, out: any = {}, r: Response | null = null, lastMsg = '';
     for (let i = 0; i < candidates.length; i++) {
-      r = await call(candidates[i]);
-      out = await r.json().catch(() => ({}));
-      if (r.ok) { goodModel = candidates[i]; break; }
-      lastMsg = String(out?.error?.message ?? r.status);
-      if (r.status === 400 && /API key/i.test(lastMsg)) throw new Fail('Gemini did not accept the key – check it in Settings');
-      if (!gone(r.status, lastMsg)) throw new Fail(`Gemini said: ${lastMsg}`);
+      // a busy model gets two more tries with a short wait before moving on to the next model
+      for (let attempt = 0; attempt < 3; attempt++) {
+        r = await call(candidates[i]);
+        out = await r.json().catch(() => ({}));
+        if (r.ok) break;
+        lastMsg = String(out?.error?.message ?? r.status);
+        if (!busy(r.status, lastMsg)) break;
+        busyCount++;
+        if (late()) break;
+        if (attempt < 2) await wait(attempt === 0 ? 1500 : 4000);
+      }
+      if (r!.ok) { goodModel = candidates[i]; break; }
+      if (late()) break;
+      if (r!.status === 400 && /API key/i.test(lastMsg)) throw new Fail('Gemini did not accept the key – check it in Settings');
+      if (!gone(r!.status, lastMsg) && !busy(r!.status, lastMsg)) throw new Fail(`Gemini said: ${lastMsg}`);
       if (i === candidates.length - 1 && !listed) {
         // ask Google which Flash models this key may use, newest first
         listed = true;
@@ -104,7 +117,7 @@ Deno.serve(async req => {
         candidates = [...candidates, ...more];
       }
     }
-    if (!r?.ok) throw new Fail(`Gemini said: ${lastMsg}`);
+    if (!r?.ok) throw new Fail(busyCount ? 'Gemini is very busy right now – please try again in a minute or two' : `Gemini said: ${lastMsg}`);
     const text = out?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
     let parsed;
     try { parsed = JSON.parse(text); } catch { throw new Fail('Could not read the labels – try a clearer photo'); }
