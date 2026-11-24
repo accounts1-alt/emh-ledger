@@ -16,7 +16,7 @@ import { addDays } from '../src/lib/recon';
 import { pullStripe, STRIPE_LABEL, type PullResult } from './stripe';
 import { gatherReport, renderReport } from './report';
 import { pullPaymentsense, paymentsenseConfigured } from './paymentsense';
-import { discoverSemtek, compareSemtek, semtekConfigured, networkCheck, pullSemtek, checkSemtekPerms, inspectPaymentWrite, writeKiplingPayment } from './semtek';
+import { discoverSemtek, compareSemtek, semtekConfigured, networkCheck, pullSemtek, checkSemtekPerms, inspectPaymentWrite, writeKiplingPayment, diagCard } from './semtek';
 
 const env = process.env;
 const what = (process.argv[2] || 'both').toLowerCase();
@@ -49,6 +49,18 @@ async function main() {
         const err = e as { message?: string; stack?: string; cause?: unknown; name?: string };
         await log({ step: 'paymentsense-test', ok: false, message: err.message || String(e), name: err.name, stack: String(err.stack || '').slice(0, 2500), cause: err.cause ? String(err.cause).slice(0, 800) : undefined });
       }
+    }
+    await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
+    if (!ok) process.exitCode = 1;
+    return;
+  }
+
+  if (what === 'semtek-diag-card') {
+    let ok = true;
+    if (!semtekConfigured() || env.ZEROTIER_OK !== 'true') { await log({ step: 'semtek-diag-card', ok: false, message: 'No Semtek connection (is your PC fully off ZeroTier?).' }); ok = false; }
+    else {
+      try { await log({ step: 'semtek-diag-card', ok: true, ...(await diagCard(10.58, '2026-11-20', '2026-11-20')) }); }
+      catch (e) { ok = false; await log({ step: 'semtek-diag-card', ok: false, message: (e as Error).message, network: await networkCheck().catch(x => String(x)) }); }
     }
     await supabase.from('robot_runs').update({ finished_at: new Date().toISOString(), ok }).eq('id', runId);
     if (!ok) process.exitCode = 1;

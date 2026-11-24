@@ -414,3 +414,22 @@ export async function writeKiplingPayment() {
       undo: `delete from Payments where PaymentID='${pid}'; update Customers set AccountBalance = ${before.AccountBalance}, LastPaymentDate = '${before.LastPaymentDate ? new Date(before.LastPaymentDate as string).toISOString() : ''}' where CustomerID=511;` };
   } finally { await pool.close(); }
 }
+
+/** Diagnostic: what does Semtek actually hold around a given card amount and date? (read-only) */
+export async function diagCard(amount: number, from: string, to: string) {
+  const pool = await semtekConnect();
+  try {
+    const q = async (s: string) => (await pool.request().query(s)).recordset as Record<string, unknown>[];
+    return {
+      sales_cc: await q(`select SaleID, TillID, Date, Cash, Chq, CC, Vouchers, Coupons, Account, Bacs, FinalTally, Total from Sales
+        where cast(Date as date) between '${from}' and '${to}' and (CC = ${amount} or FinalTally = ${amount}) order by Date`),
+      payments_cc: await q(`select PaymentID, Station, Date, Cash, Cheque, CreditCard, Vouchers, Coupons, Bacs, Amount from Payments
+        where cast(Date as date) between '${from}' and '${to}' and (CreditCard = ${amount} or Amount = ${amount}) order by Date`),
+      // everything around that exact minute, to catch a combined/split sale
+      sales_window: await q(`select SaleID, Date, Cash, Chq, CC, Vouchers, Account, FinalTally from Sales
+        where Date between '${from}T12:20:00' and '${from}T12:40:00' order by Date`),
+      payments_window: await q(`select PaymentID, Date, Cash, Cheque, CreditCard, Vouchers, Amount from Payments
+        where Date between '${from}T12:20:00' and '${from}T12:40:00' order by Date`),
+    };
+  } finally { await pool.close(); }
+}
