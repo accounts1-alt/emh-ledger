@@ -93,14 +93,24 @@ async function send(orderId: number, who: string) {
   if (!lines?.length) throw new Fail('No items on this order');
   const { data: prices } = await db.from('ord_line_prices').select('*').in('line_id', lines.map(l => l.id));
   const price = new Map((prices ?? []).map(p => [p.line_id, Number(p.price)]));
-  const { data: items } = await db.from('ord_items').select('id, name, xero_code, xero_tax_type, xero_account').in('id', lines.map(l => l.item_id));
+  // invoice lines worked out from the customer's price list (if any) replace the one-line-per-item invoice
+  const { data: ils } = await db.from('ord_invoice_lines').select('*').eq('order_id', orderId).order('position');
+  const { data: items } = await db.from('ord_items').select('id, name, xero_code, xero_tax_type, xero_account').in('id', [...lines.map(l => l.item_id), ...(ils ?? []).map(x => x.item_id).filter(Boolean)]);
   const item = new Map((items ?? []).map(i => [i.id, i]));
   const { data: cust } = await db.from('ord_customers').select('id, name, xero_contact_id, is_test').eq('id', o.customer_id).single();
   if (cust?.is_test) throw new Fail('This is a test customer – it is never sent to Xero');
   const { data: tx } = await db.from('ord_settings').select('value').eq('key', 'xero_tax_type').maybeSingle();
   const taxType = tx?.value || 'ZERORATEDOUTPUT';
 
-  const LineItems = lines.map(l => {
+  const unitW = (u: string) => u === 'kg' ? 'kg' : u === 'pack' ? 'packets' : 'units';
+  const LineItems = ils?.length ? ils.map(x => {
+    if (x.price == null || x.qty == null) throw new Fail(`${x.description}: fill in the ${x.qty == null ? 'quantity' : 'price'}`);
+    const it = item.get(x.item_id) ?? lines.map(l => item.get(l.item_id)).find(Boolean);
+    const li: Record<string, unknown> = { Description: `${x.description} (${Number(x.qty)} ${unitW(x.unit)})`, Quantity: Number(x.qty), UnitAmount: Number(x.price),
+      AccountCode: it?.xero_account || SALES_ACCOUNT, TaxType: it?.xero_tax_type || taxType };
+    if (it?.xero_code) li.ItemCode = it.xero_code;
+    return li;
+  }) : lines.map(l => {
     const p = price.get(l.id), it = item.get(l.item_id)!;
     if (p == null) throw new Fail(`No price for ${it.name}`);
     // Xero's API does not copy an item's VAT onto the line (it uses the account's), so send the item's own

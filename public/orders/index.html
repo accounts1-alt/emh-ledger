@@ -247,6 +247,12 @@
   .irow { display: grid; grid-template-columns: minmax(0,1fr) 100px 150px 90px; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee; font-size: 15px; }
   .irow.ih { font-size: 12px; color: #999; padding: 6px 0; } .irow > span:nth-child(n+2) { text-align: right; }
   .mbox.wide { max-width: 980px; }
+  .prh, .prr { display: grid; grid-template-columns: minmax(0, 2fr) 90px 150px 90px 150px 28px; gap: 8px; align-items: center; }
+  .prh { font-size: 12px; font-weight: 700; color: #777; text-transform: uppercase; margin: 6px 0; } .prr { margin-bottom: 8px; } .prr select { padding: 8px 4px; }
+  @media (max-width: 760px) { .prh { display: none; } .prr { grid-template-columns: 1fr 1fr; } .prr input[data-f="applies_to"] { grid-column: 1 / -1; } }
+  .ilr { display: grid; grid-template-columns: minmax(0, 1fr) 120px 130px 100px; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid #eee; }
+  .ilr.ih { font-size: 12px; font-weight: 700; color: #777; text-transform: uppercase; padding-top: 0; } .ilr.bad { background: #fdf0ef; }
+  .ilr .qin { width: 80px; text-align: right; } .ilr .why { font-size: 12px; color: #b3261e; }
   .wtop { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; } .wtop .rsw { flex: 1; margin: 0; }
   .phb { display: inline-flex; align-items: center; gap: 6px; border: 2px solid #7a1f1f; color: #7a1f1f; background: #fff; border-radius: 14px; padding: 0 18px; font-weight: 700; font-size: 16px; cursor: pointer; min-height: 52px; }
   .phb:hover { background: #fbefef; }
@@ -1145,11 +1151,14 @@ async function invScreen() {
   const [orders, cnt] = await Promise.all([q(qy), q(sb.from('ord_orders').select('status').in('status', ['fulfilled', 'new']))]);
   orders.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position); delete o.ord_lines; });
   const ids = orders.flatMap(o => o.lines.map(l => l.id));
-  const [prices, pk] = I.tab === 'waiting' ? [{}, {}] : await Promise.all([pricesFor(ids), packingFor(ids)]);
+  const [prices, pk, ils, rl] = I.tab === 'waiting' ? [{}, {}, [], []] : await Promise.all([pricesFor(ids), packingFor(ids),
+    orders.length ? q(sb.from('ord_invoice_lines').select('order_id, qty, price').in('order_id', orders.map(o => o.id))) : [], q(sb.from('ord_price_rules').select('customer_id'))]);
   orders.forEach(o => o.lines.forEach(l => { l.price = prices[l.id] ?? ''; l.pack = pk[l.id] || []; }));
+  const ruled = new Set(rl.map(r => r.customer_id));
   const lt = l => isNum(l.price) && l.qty_net != null ? Math.round(Number(l.qty_net) * Number(l.price) * 100) / 100 : null;
-  const tot = o => o.lines.reduce((s, l) => s + (lt(l) ?? 0), 0);
-  const missing = o => o.lines.some(l => !isNum(l.price));
+  const ilOf = o => ils.filter(x => x.order_id === o.id);
+  const tot = o => ilOf(o).length ? ilOf(o).reduce((s, x) => s + (x.qty != null && x.price != null ? Math.round(x.qty * x.price * 100) / 100 : 0), 0) : o.lines.reduce((s, l) => s + (lt(l) ?? 0), 0);
+  const missing = o => ilOf(o).length ? ilOf(o).some(x => x.price == null || x.qty == null) : ruled.has(o.customer_id) ? false : o.lines.some(l => !isNum(l.price));
   const nTodo = cnt.filter(c => c.status === 'fulfilled').length, nWait = cnt.filter(c => c.status === 'new').length;
   const today = isoDay(0);
   const dateOf = o => I.tab === 'done' ? (o.invoiced_at || '').slice(0, 10) : I.tab === 'waiting' ? o.prep_date : o.delivery_date;
@@ -1158,7 +1167,7 @@ async function invScreen() {
   const card = o => {
     if (I.tab === 'waiting') return `<div class="pcard flat"><div class="pcn">${esc(cust(o.customer_id)?.name)}</div><div class="pci">${itemsShort(o, false)}</div></div>`;
     const t = tot(o);
-    return `<button class="pcard icard" data-o="${o.id}"><div class="icl"><div class="pcn">${esc(cust(o.customer_id)?.name)}${I.tab === 'todo' && missing(o) ? ' <span class="tg tg-ed">prices needed</span>' : ''}</div>
+    return `<button class="pcard icard" data-o="${o.id}"><div class="icl"><div class="pcn">${esc(cust(o.customer_id)?.name)}${I.tab === 'todo' && missing(o) ? ' <span class="tg tg-ed">prices needed</span>' : ''}${I.tab === 'todo' && ruled.has(o.customer_id) && !ilOf(o).length ? ' <span class="tg tg-ok">price list</span>' : ''}</div>
       <div class="pci">#${o.id} · ${o.lines.length} item${o.lines.length === 1 ? '' : 's'}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}</div></div><div class="icr">${t ? money(t) : '—'}</div></button>`;
   };
   $('#view').innerHTML = `
@@ -1170,9 +1179,82 @@ async function invScreen() {
       <div class="icards">${g.list.map(card).join('')}</div></section>`).join('')
       : `<div class="empty">${I.tab === 'todo' ? 'Nothing to invoice 👍' : 'Nothing here'}</div>`}`;
   document.querySelectorAll('.seg [data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; invScreen(); });
-  document.querySelectorAll('.icard[data-o]').forEach(b => b.onclick = () => invOpen(orders.find(o => o.id == b.dataset.o), { lt, tot }));
+  document.querySelectorAll('.icard[data-o]').forEach(b => b.onclick = () => safe(() => invOpen(orders.find(o => o.id == b.dataset.o), { lt, tot })));
 }
-function invOpen(o, { lt, tot }) {
+async function invOpen(o, opts) {
+  const [rules, saved] = await Promise.all([q(sb.from('ord_price_rules').select('*').eq('customer_id', o.customer_id).order('position')), q(sb.from('ord_invoice_lines').select('*').eq('order_id', o.id).order('position'))]);
+  if (rules.length || saved.length) return invOpenRules(o, rules, saved);
+  return invOpenSimple(o, opts);
+}
+function invOpenRules(o, rules, saved) {
+  const edit = o.status === 'fulfilled';
+  const toXero = XERO.connected && !cust(o.customer_id)?.is_test;
+  let lines = saved.length ? saved.map(x => ({ ...x, qty: x.qty != null ? qf(x.qty) : '', price: x.price != null ? qf(x.price) : '' })) : workOutInvoice(o, rules);
+  const lt = x => isNum(x.qty) && isNum(x.price) ? Math.round(Number(x.qty) * Number(x.price) * 100) / 100 : null;
+  const tot = () => lines.reduce((a, x) => a + (lt(x) ?? 0), 0);
+  const unitW = u => u === 'kg' ? 'kg' : u === 'pack' ? 'packets' : 'units';
+  const packLines = o.lines.filter(l => l.pack.length);
+  const side = packLines.length ? `<aside class="iside"><div class="isth">Packing</div>${packLines.map(l => `<div class="isit"><b>${esc(item(l.item_id)?.name)}</b>
+      ${l.pack.map(r => `<div class="isr"><span>${r.qty_planned != null ? qf(r.qty_planned) + ' × ' : ''}${esc(r.how)}</span><span>${r.qty_packed != null ? `<b class="${r.qty_planned != null && Number(r.qty_packed) !== Number(r.qty_planned) ? 'late-t' : ''}">${qf(r.qty_packed)}</b> packed` : '—'}${r.weight != null ? ` · ${qf(r.weight)} kg` : ''}</span></div>`).join('')}</div>`).join('')}</aside>` : '';
+  const { m, close } = modal(`
+    <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivered ${ukDate(o.delivery_date)}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''} · from the price list</div></div><button class="mx" aria-label="Close">✕</button></div>
+    <div class="${side ? 'igrid' : ''}"><div>
+      <div class="ilr ih"><span>Invoice line</span><span>Qty</span><span>Price</span><span class="num">Total</span></div>
+      <div data-il></div>
+      ${edit ? `<div class="actions" style="margin-top:8px"><button class="link" data-redo>↻ Work out again from the price list</button></div>` : ''}
+      <div class="total" data-tot></div>
+    </div>${side}</div>
+    <div class="mf">${edit ? `
+      ${toXero ? '<button class="link" data-manual style="margin-right:auto">mark invoiced without Xero</button>' : '<input placeholder="Invoice no. (optional)" data-inv style="width:190px;margin-right:auto">'}
+      <button class="mbtn ghost" data-sp>Save</button>
+      <button class="mbtn go" data-go>${toXero ? 'Send to Xero' : 'Mark invoiced'}</button>`
+      : `${o.xero_invoice_id ? '<span class="muted" style="margin-right:auto">Sent to Xero as a draft</span>' : ''}<button class="mbtn ghost" data-un>Undo invoiced</button><button class="mbtn go" data-c>Close</button>`}</div>`);
+  m.querySelector('.mbox').classList.add('wide');
+  const box = m.querySelector('[data-il]');
+  const draw = () => {
+    box.innerHTML = lines.map((x, i) => { const bad = !isNum(x.qty) || !isNum(x.price);
+      return `<div class="ilr ${bad && edit ? 'bad' : ''}"><span><b>${esc(x.description)}</b> <span class="muted">· ${esc(item(x.item_id)?.name || '')}</span>${x.why && !isNum(x.price) ? `<div class="why">${esc(x.why)}</div>` : ''}${!isNum(x.qty) && edit ? '<div class="why">no weight/quantity from processing</div>' : ''}</span>
+        <span>${edit ? `<input class="qin" data-q="${i}" inputmode="decimal" value="${esc(x.qty)}">` : esc(x.qty)} <span class="muted">${unitW(x.unit)}</span></span>
+        <span>${edit ? `<span class="ipw">£ <input class="price" data-p="${i}" inputmode="decimal" value="${esc(x.price)}"></span>` : money(x.price)}<span class="muted">/${x.unit === 'kg' ? 'kg' : x.unit === 'pack' ? 'pk' : 'unit'}</span></span>
+        <span class="num" data-lt="${i}">${money(lt(x))}</span></div>`; }).join('') || '<p class="muted">Nothing to invoice.</p>';
+    m.querySelector('[data-tot]').textContent = 'Total: ' + money(tot());
+    box.querySelectorAll('[data-q],[data-p]').forEach(inp => inp.oninput = () => {
+      const i = inp.dataset.q ?? inp.dataset.p; lines[i][inp.dataset.q != null ? 'qty' : 'price'] = inp.value.trim();
+      m.querySelector(`[data-lt="${i}"]`).textContent = money(lt(lines[i])); m.querySelector('[data-tot]').textContent = 'Total: ' + money(tot());
+      const row = inp.closest('.ilr'); row.classList.toggle('bad', !isNum(lines[i].qty) || !isNum(lines[i].price));
+    });
+  };
+  draw();
+  m.querySelector('.mx').onclick = close;
+  if (!edit) {
+    m.querySelector('[data-c]').onclick = close;
+    m.querySelector('[data-un]').onclick = () => safe(async () => {
+      if (!confirm('Undo invoiced for #' + o.id + '?' + (o.xero_invoice_id ? '\n\nDelete the draft invoice ' + (o.invoice_number || '') + ' in Xero too, or you will get a duplicate when you send it again.' : ''))) return;
+      await q(sb.rpc('ord_save', { p: { id: o.id, action: 'uninvoice' } })); close(); toast('Moved back to To invoice'); invScreen();
+    });
+    return;
+  }
+  m.querySelector('[data-redo]').onclick = () => { if (!rules.length) return toast('This customer has no price list any more', true); lines = workOutInvoice(o, rules); draw(); toast('Worked out again – press Save to keep it'); };
+  const check = all => { for (const x of lines) {
+      if (x.price !== '' && !isNum(x.price)) throw new Error(`"${x.price}" is not a price (${x.description})`);
+      if (x.qty !== '' && !isNum(x.qty)) throw new Error(`"${x.qty}" is not a quantity (${x.description})`);
+      if (all && (!isNum(x.price) || !isNum(x.qty))) throw new Error(`${x.description}: fill in the ${!isNum(x.qty) ? 'quantity' : 'price'}`);
+    } if (all && !lines.length) throw new Error('Nothing to invoice'); };
+  const saveLines = () => q(sb.rpc('ord_save_invoice_lines', { p_order: o.id, p_lines: lines.map(({ item_id, description, qty, unit, price, kind }) => ({ item_id, description, qty, unit, price, kind })) }));
+  m.querySelector('[data-sp]').onclick = () => safe(async () => { check(false); await saveLines(); close(); toast('Saved'); invScreen(); });
+  const invoiceManually = invNo => safe(async () => { check(true); await saveLines(); await q(sb.rpc('ord_save', { p: { id: o.id, action: 'invoice', invoice_number: invNo ?? '', lines: [] } })); close(); toast(`#${o.id} marked invoiced`); invScreen(); });
+  m.querySelector('[data-manual]')?.addEventListener('click', () => { const n = prompt('Xero invoice number (optional):', ''); if (n !== null) invoiceManually(n); });
+  m.querySelector('[data-go]').onclick = e => {
+    if (!toXero) return invoiceManually(m.querySelector('[data-inv]')?.value || '');
+    safe(async () => {
+      check(true);
+      const b = e.target; b.disabled = true; b.textContent = 'Sending…';
+      try { await saveLines(); const r = await xeroCall({ action: 'send', order_id: o.id }); close(); toast(`✓ Sent to Xero as draft ${r.invoice_number}`); invScreen(); }
+      finally { b.disabled = false; b.textContent = 'Send to Xero'; }
+    });
+  };
+}
+function invOpenSimple(o, { lt, tot }) {
   const edit = o.status === 'fulfilled';
   const unitsInfo = l => {
     const bits = [];
@@ -1331,8 +1413,11 @@ async function setupScreen() {
   const last = lastRow ? JSON.parse(lastRow.value) : null;
   const badge = (r, kind) => r.orphaned ? '<span class="tg tg-rem">deleted in Xero – archived</span>'
     : (kind === 'c' ? !r.xero_contact_id : !r.xero_code) ? `<span class="tg tg-ed">${kind === 'c' ? 'new – goes to Xero with first invoice' : 'app only – not in Xero'}</span>` : '';
+  const rules = await q(sb.from('ord_price_rules').select('customer_id'));
+  const hasRules = new Set(rules.map(r => r.customer_id));
   const list = (rows, kind) => rows.slice().sort((x, y) => (x.orphaned - y.orphaned) || x.name.localeCompare(y.name))
-    .map(r => `<tr style="${r.orphaned ? 'color:#999' : ''}" data-name="${esc(r.name.toLowerCase())}"><td>${esc(r.name)} ${badge(r, kind)}</td>${kind === 'i' ? `<td class="muted num">${esc(r.xero_code || '')}</td>` : ''}</tr>`).join('');
+    .map(r => `<tr style="${r.orphaned ? 'color:#999' : ''}" data-name="${esc(r.name.toLowerCase())}"><td>${esc(r.name)} ${badge(r, kind)}</td>${kind === 'i' ? `<td class="muted num">${esc(r.xero_code || '')}</td>`
+      : `<td style="text-align:right;white-space:nowrap"><button class="link" data-prl="${r.id}">${hasRules.has(r.id) ? '✓ Price list' : '+ Price list'}</button></td>`}</tr>`).join('');
   const nC = customers.filter(c => !c.orphaned).length, nI = items.filter(i => !i.orphaned).length;
   $('#view').innerHTML = `<div class="card"><h2>Xero</h2>
     ${XERO.connected ? `<p>✅ Connected to <b>${esc(XERO.tenant_name)}</b>. Customers and items come from Xero – press <b>Sync with Xero</b> after adding or changing them in Xero.</p>
@@ -1383,11 +1468,92 @@ async function setupScreen() {
   });
   const filt = (inp, tb) => inp.oninput = () => { const t = inp.value.trim().toLowerCase(); tb.querySelectorAll('tr').forEach(r => r.style.display = r.dataset.name.includes(t) ? '' : 'none'); };
   filt($('#s-fc'), $('#s-tc')); filt($('#s-fi'), $('#s-ti'));
+  document.querySelectorAll('[data-prl]').forEach(b => b.onclick = () => safe(() => priceListModal(Number(b.dataset.prl))));
   $('#s-ac').onclick = () => safe(async () => {
     const n = (prompt('New customer name (as it should appear in Xero):', $('#s-fc').value.trim()) || '').trim(); if (!n) return;
     const dup = customers.find(c => c.name.toLowerCase() === n.toLowerCase()); if (dup) throw new Error(`"${dup.name}" already exists`);
     await newCustomer(n); setupScreen();
   });
+}
+
+/* Customer price list: a row for all items and/or rows for one item (or packed item). Blank price = not charged. */
+const PER = { kg: 'per kg', pack: 'per packet', unit: 'per unit/chicken' };
+async function priceListModal(cid) {
+  const c = cust(cid);
+  let rows = (await q(sb.from('ord_price_rules').select('*').eq('customer_id', cid).order('position'))).map(r => ({ ...r, meat_price: r.meat_price != null ? qf(r.meat_price) : '', proc_price: r.proc_price != null ? qf(r.proc_price) : '' }));
+  if (!rows.length) rows = [{ applies_to: '', meat_price: '', meat_per: 'kg', proc_price: '', proc_per: 'kg' }];
+  await loadPackWords();
+  const names = [...new Set([...items.filter(i => !i.orphaned).map(i => i.name), ...PACK_WORDS])].sort();
+  const perSel = (v, a) => `<select ${a}>${Object.entries(PER).map(([k, t]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  const { m, close } = modal(`
+    <div class="mh"><div><div class="mt">Price list – ${esc(c?.name)}</div><div class="ms">Invoices for this customer are worked out from this. Leave a price empty if it isn’t charged.</div></div><button class="mx" aria-label="Close">✕</button></div>
+    <datalist id="pl-names">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+    <div class="prh"><span>Applies to</span><span>Meat £</span><span></span><span>Processing £</span><span></span><span></span></div>
+    <div data-rows></div>
+    <button class="link" data-add>+ Add a row for one item</button>
+    <p class="muted" style="font-size:13px;margin-top:10px">A row for one item (e.g. “Minced Beef” or “Chicken”) replaces the prices it fills in; anything left empty comes from the “All items” row. Put 0 for “not charged”. Item names match the packing lines or the item on the order.</p>
+    <div class="mf"><button class="mbtn ghost" data-c>Cancel</button><button class="mbtn go" data-s>Save price list</button></div>`);
+  m.querySelector('.mbox').classList.add('wide');
+  const box = m.querySelector('[data-rows]');
+  const draw = () => {
+    box.innerHTML = rows.map((r, i) => `<div class="prr">
+      <input data-f="applies_to" data-i="${i}" list="pl-names" placeholder="All items" value="${esc(r.applies_to)}">
+      <input data-f="meat_price" data-i="${i}" inputmode="decimal" placeholder="—" value="${esc(r.meat_price)}">${perSel(r.meat_per, `data-f="meat_per" data-i="${i}"`)}
+      <input data-f="proc_price" data-i="${i}" inputmode="decimal" placeholder="—" value="${esc(r.proc_price)}">${perSel(r.proc_per, `data-f="proc_per" data-i="${i}"`)}
+      <button class="link" data-x="${i}" aria-label="Remove row">✕</button></div>`).join('');
+    box.querySelectorAll('[data-f]').forEach(e => e[e.tagName === 'SELECT' ? 'onchange' : 'oninput'] = () => rows[e.dataset.i][e.dataset.f] = e.value.trim());
+    box.querySelectorAll('[data-x]').forEach(b => b.onclick = () => { rows.splice(+b.dataset.x, 1); draw(); });
+  };
+  draw();
+  m.querySelector('[data-add]').onclick = () => { rows.push({ applies_to: '', meat_price: '', meat_per: 'kg', proc_price: '', proc_per: 'kg' }); draw(); box.querySelectorAll('[data-f="applies_to"]')[rows.length - 1].focus(); };
+  m.querySelector('.mx').onclick = close; m.querySelector('[data-c]').onclick = close;
+  m.querySelector('[data-s]').onclick = () => safe(async () => {
+    const keep = rows.filter(r => r.applies_to || r.meat_price || r.proc_price);
+    const seen = new Set();
+    for (const r of keep) {
+      const k = r.applies_to.toLowerCase(); if (seen.has(k)) throw new Error(`“${r.applies_to || 'All items'}” is in the list twice`); seen.add(k);
+      for (const f of ['meat_price', 'proc_price']) if (r[f] && !isNum(r[f])) throw new Error(`“${r[f]}” is not a price (${r.applies_to || 'All items'})`);
+      if (!r.meat_price && !r.proc_price) throw new Error(`${r.applies_to || 'All items'}: fill in a meat or processing price`);
+    }
+    await q(sb.from('ord_price_rules').delete().eq('customer_id', cid));
+    if (keep.length) await q(sb.from('ord_price_rules').insert(keep.map((r, i) => ({ customer_id: cid, applies_to: r.applies_to, meat_price: r.meat_price || null, meat_per: r.meat_per, proc_price: r.proc_price || null, proc_per: r.proc_per, position: i }))));
+    close(); toast('Price list saved'); setupScreen();
+  });
+}
+
+/* Work out invoice lines from the customer's price list and what processing sent */
+const nm = s => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+function workOutInvoice(o, rules) {
+  const all = rules.find(r => !r.applies_to.trim());
+  const own = name => rules.find(r => r.applies_to.trim() && nm(r.applies_to) === nm(name));
+  // an item's own row only replaces the prices it fills in; empty ones come from the "All items" row
+  const ruleFor = name => { const r = own(name); if (!r) return null; if (!all) return r;
+    return { ...r, meat_price: r.meat_price ?? all.meat_price, meat_per: r.meat_price != null ? r.meat_per : all.meat_per, proc_price: r.proc_price ?? all.proc_price, proc_per: r.proc_price != null ? r.proc_per : all.proc_per }; };
+  const out = [], proc = new Map();
+  const qtyOf = (t, per) => per === 'kg' ? t.kg : per === 'pack' ? t.packs : t.units;
+  const add = (t, r, itemId, both) => {
+    if (!r) { out.push({ item_id: itemId, description: t.name, qty: t.kg, unit: 'kg', price: '', kind: 'meat', why: 'no price in the price list' }); return; }
+    if (r.meat_price != null && Number(r.meat_price) > 0) out.push({ item_id: itemId, description: both && Number(r.proc_price) > 0 ? `${t.name} – meat` : t.name, qty: qtyOf(t, r.meat_per), unit: r.meat_per, price: qf(r.meat_price), kind: 'meat' });
+    if (r.proc_price != null && Number(r.proc_price) > 0) {
+      const k = `${itemId}|${r.proc_price}|${r.proc_per}`;
+      const g = proc.get(k) || { item_id: itemId, description: 'Processing', qty: 0, unit: r.proc_per, price: qf(r.proc_price), kind: 'proc', missing: false };
+      const qn = qtyOf(t, r.proc_per); if (qn == null) g.missing = true; else g.qty += Number(qn);
+      proc.set(k, g);
+    }
+  };
+  for (const l of o.lines) {
+    if (l.removed || l.qty_net == null) continue;
+    const name = item(l.item_id)?.name || '';
+    const units = l.packs_made != null ? Number(l.packs_made) : l.unit === 'units' && !l.added_by_ops ? Number(l.qty_ordered) : null;
+    const sent = (l.pack || []).filter(r => Number(r.qty_packed) > 0);
+    const lineRule = own(name) ? ruleFor(name) : null;
+    if (sent.length && !lineRule) {
+      // a packing order: every packed item is its own line
+      for (const r of sent) add({ name: r.how, kg: r.weight != null ? Number(r.weight) : null, packs: Number(r.qty_packed), units: Number(r.qty_packed) }, ruleFor(r.how) || all, l.item_id, true);
+    } else add({ name, kg: Number(l.qty_net), packs: l.packs_made != null ? Number(l.packs_made) : sent.reduce((a, r) => a + Number(r.qty_packed), 0) || null, units }, lineRule || all, l.item_id, true);
+  }
+  proc.forEach(g => out.push({ ...g, qty: g.missing ? null : Math.round(g.qty * 1000) / 1000 }));
+  return out.map(x => ({ ...x, qty: x.qty == null || isNaN(x.qty) ? '' : qf(Math.round(Number(x.qty) * 1000) / 1000) }));
 }
 
 /* ================= ADMIN: staff ================= */
