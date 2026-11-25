@@ -1020,8 +1020,9 @@ async function openWeigh(o) {
         if (r.packed === '' || r.packed == null) r.packed = '0';   // left empty = none of this one was sent
         if (!isNum(r.packed) || (r.kg !== '' && r.kg != null && !isNum(r.kg))) throw new Error(`${n} – “${r.how}”: packed and kg must be numbers`);
         if (autoKg(l) && Number(r.packed) > 0 && !isNum(r.kg)) throw new Error(`${n} – “${r.how}”: fill in the kg (${qf(r.packed)} packed)`);
-        if (resaleOn && (r.rp === '' || !isNum(r.rp))) throw new Error(`${n} – “${r.how}”: fill in the resale price — or switch Resale off`);
+        if (resaleOn && Number(r.packed) > 0 && !isNum(r.rp)) throw new Error(`${n} – “${r.how}”: fill in the resale price — or switch Resale off`);
       }
+      if ((l.pack || []).length && l.pack.every(r => Number(r.packed) === 0) && l.w === '') throw new Error(`${n}: nothing packed – fill in what was sent, or use ⋯ to delete or move it`);
       if (l.w === '') throw new Error((l.pack || []).length ? `${n}: fill in the kg on the packing lines, or type the total kg` : `Fill in the kg for ${n} — or use ⋯`);
       if (!isNum(l.w)) throw new Error(`"${l.w}" is not a weight (${n})`);
       if (Number(l.w) - Number(l.t) * TRAY <= 0) throw new Error(`${n}: weight is less than the trays`);
