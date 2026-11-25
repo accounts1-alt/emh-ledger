@@ -297,10 +297,12 @@ async function main() {
     // one-off: capture how Semtek holds the £10.58 of 20 Nov, the next time the till connects (then stop)
     if (sem.ok) {
       const flag = await supabase.from('settings').select('value').eq('key', 'diag_card').maybeSingle();
-      const d = flag.data?.value as { amount: number; date: string } | null | undefined;
-      if (d) {
+      const d = flag.data?.value as { amount?: number; date?: string } | null | undefined;
+      if (d && d.amount && d.date) {
         try { await log({ step: 'semtek-diag-card', ok: true, ...(await diagCard(d.amount, d.date, d.date)) }); } catch (e) { await log({ step: 'semtek-diag-card', ok: false, message: (e as Error).message }); }
-        await supabase.from('settings').update({ value: null, change_reason: 'diagnostic captured' }).eq('key', 'diag_card');
+        // settings.value is NOT NULL, so switch the one-off off with an empty object rather than null
+        const clr = await supabase.from('settings').update({ value: {}, change_reason: 'diagnostic captured' }).eq('key', 'diag_card');
+        if (clr.error) await log({ step: 'semtek-diag-card-clear', ok: false, message: clr.error.message });
       }
     }
   }
