@@ -411,6 +411,23 @@
   @media (max-width: 600px) { .tiles { grid-template-columns: 1fr 1fr; gap: 10px; } .tile { min-height: 108px; padding: 16px; } .tile .n { font-size: 28px; } .hello b { font-size: 22px; } main { padding: 16px 12px 60px; } }
   .shr.on { background: #e8ecff; } .osec { background: #fafbff; border-color: #e6e9f4; border-radius: 18px; } .bcbox { border-color: #e6e9f4; border-radius: 14px; }
   .tplb { background: #fff; border: 1.5px dashed #b9c2e0; color: #1d2a5b; }
+  .kpi i { display: block; font-style: normal; font-size: 12px; font-weight: 700; color: #9aa1bd; margin-top: 4px; } .kpi.bad i { color: #e5484d; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .chart { background: #fff; border-radius: 20px; padding: 16px 18px 12px; box-shadow: 0 1px 2px rgba(29,42,91,.05), 0 4px 16px rgba(29,42,91,.04); }
+  .cbars { display: flex; align-items: flex-end; gap: 8px; height: 150px; }
+  .cb { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+  .cbar { width: 100%; max-width: 46px; border-radius: 8px 8px 3px 3px; background: #d5dbf5; } .cb.on .cbar { background: #ff6b5b; }
+  .cv { font-size: 11px; font-weight: 800; color: #6b7497; margin-bottom: 3px; white-space: nowrap; } .cl { font-size: 11px; font-weight: 700; color: #9aa1bd; margin-top: 5px; white-space: nowrap; }
+  .cb.on .cv, .cb.on .cl { color: #1d2a5b; }
+  .dcols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start; }
+  @media (max-width: 860px) { .dcols { grid-template-columns: 1fr; } }
+  .dcol { background: #e9ecf6; border-radius: 20px; padding: 12px; }
+  .dch { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px 10px; font-weight: 900; color: #1d2a5b; }
+  .dch b { background: #fff; border-radius: 99px; padding: 2px 10px; font-size: 13px; } .c1 .dch b { background: #ff6b5b; color: #fff; } .c2 .dch b { background: #1d2a5b; color: #fff; }
+  .dcard { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; border: 0; background: #fff; border-radius: 14px; padding: 11px 14px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(29,42,91,.06); }
+  .dcard:hover { box-shadow: 0 6px 16px rgba(29,42,91,.1); } .dcard.late { box-shadow: inset 4px 0 0 #e5484d, 0 1px 2px rgba(29,42,91,.06); }
+  .dn { font-weight: 900; font-size: 16px; color: #1d2a5b; } .ds { font-size: 13px; color: #6b7497; font-weight: 600; }
+  .c3 .dcard { background: #f7f8fd; } .c3 .dn { color: #14a073; }
   .hide { display: none !important; }
 </style>
 </head>
@@ -1628,46 +1645,64 @@ async function continueOrder(id) {
   toast('Waiting to be packed');
 }
 async function dashScreen() {
-  const today = isoDay(0), ws = weekStart(0);
-  const [open, tasks, wk] = await Promise.all([
+  const today = isoDay(0), from8 = weekStart(-7), money0 = role !== 'processing';
+  const since7 = new Date(Date.now() - 7 * 864e5).toISOString();
+  const [open, done, tasks, hist] = await Promise.all([
     q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').neq('status', 'invoiced').order('prep_date').order('id')),
+    q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('status', 'invoiced').gte('invoiced_at', since7).order('invoiced_at', { ascending: false }).limit(30)),
     role === 'invoicing' ? [] : q(sb.from('ord_tasks').select('id, kind, due_date').eq('done', false)),
-    role === 'processing' ? [] : q(sb.from('ord_orders').select('id').eq('status', 'invoiced').gte('delivery_date', ws)),
+    q(sb.from('ord_orders').select('id, delivery_date, status, birds').gte('delivery_date', from8)),
   ]);
-  open.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position); delete o.ord_lines; });
-  let weekTotal = null;
-  if (wk.length) { weekTotal = 0; for (let i = 0; i < wk.length; i += 150) (await q(sb.from('ord_invoice_lines').select('qty, price').in('order_id', wk.slice(i, i + 150).map(o => o.id)))).forEach(x => weekTotal += lineAmt(x)); }
-  else if (role !== 'processing') weekTotal = 0;
+  [...open, ...done].forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position); delete o.ord_lines; });
+  // money per week (last 8 weeks, invoiced orders)
+  const wk = d => { const w = new Date(d + 'T12:00:00'); w.setDate(w.getDate() - ((w.getDay() + 6) % 7)); return w.toLocaleDateString('en-CA'); };
+  const weeks = [...Array(8)].map((_, i) => weekStart(i - 7)), perWeek = Object.fromEntries(weeks.map(w => [w, 0]));
+  if (money0) { const inv = hist.filter(o => o.status === 'invoiced'), byId = new Map(inv.map(o => [o.id, o]));
+    for (let i = 0; i < inv.length; i += 150) (await q(sb.from('ord_invoice_lines').select('order_id, qty, price').in('order_id', inv.slice(i, i + 150).map(o => o.id))))
+      .forEach(x => { const k = wk(byId.get(x.order_id).delivery_date); if (k in perWeek) perWeek[k] += lineAmt(x); }); }
+  // packing load: next 7 days (late counted on today)
+  const days = [...Array(7)].map((_, i) => isoDay(i)), load = Object.fromEntries(days.map(d => [d, 0]));
+  open.filter(o => o.status === 'new').forEach(o => { const d = o.prep_date < today ? today : o.prep_date; if (d in load) load[d]++; });
   const toPack = open.filter(o => o.status === 'new'), toInv = open.filter(o => o.status === 'fulfilled');
-  const late = toPack.filter(o => o.prep_date < today).length;
-  const tk = k => tasks.filter(t => t.kind === k).length;
+  const late = toPack.filter(o => o.prep_date < today).length, todayN = toPack.filter(o => o.prep_date <= today).length;
+  const thisWk = perWeek[weekStart(0)] || 0, lastWk = perWeek[weekStart(-1)] || 0;
+  const birdsWk = hist.filter(o => o.delivery_date >= weekStart(0)).reduce((s, o) => s + (Number(o.birds) || 0), 0);
   const h = new Date().getHours(), hi = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-  const nm = uname(me); const name = nm.charAt(0).toUpperCase() + nm.slice(1);
-  const tile = (go2, n, t, s, hot) => `<button class="tile ${hot ? 'hot' : ''}" data-go="${go2}"><span class="n">${n}</span><span><span class="t">${t}</span>${s ? `<span class="s ${/late/.test(s) && !hot ? 'late' : ''}">${s}</span>` : ''}</span></button>`;
-  const lateS = late ? `${late} late` : '';
-  const tiles = role === 'admin' ? [tile('new', '＋', 'New order', 'Add an order', true), tile('proc', toPack.length, 'To pack', lateS), tile('inv', toInv.length, 'To invoice', ''), tile('reports', money(weekTotal).replace('.00', ''), 'This week', 'invoiced')]
-    : role === 'processing' ? [tile('proc', toPack.length, 'To pack', lateS || 'Open Processing', true), tile('proc', tk('prep'), 'Prep tasks', 'open'), tile('proc', tk('shop'), 'Shop orders', 'open')]
-    : [tile('inv', toInv.length, 'To invoice', 'Open Invoicing', true), tile('inv/waiting', toPack.length, 'Not packed yet', ''), tile('reports', money(weekTotal).replace('.00', ''), 'This week', 'invoiced')];
-  const mine = role === 'processing' ? toPack : role === 'invoicing' ? toInv : open;
-  mine.sort((a, b) => (a.prep_date || '').localeCompare(b.prep_date || '') || a.id - b.id);
-  const lateFirst = [...mine.filter(o => o.status === 'new' && o.prep_date < today), ...mine.filter(o => !(o.status === 'new' && o.prep_date < today))];
-  const nextWord = o => o.status === 'new' ? (role === 'invoicing' ? 'Waiting' : 'Pack & weigh') : 'Invoice';
+  const nm = uname(me), name = nm.charAt(0).toUpperCase() + nm.slice(1);
+  const kpi = (n, t, s, cls) => `<div class="kpi ${cls || ''}"><b>${n}</b><span>${t}</span>${s ? `<i>${s}</i>` : ''}</div>`;
+  const short = v => v >= 1000 ? '£' + (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : '£' + Math.round(v);
+  const chart = (title, keys, vals, lab, fmt, hiKey) => { const mx = Math.max(1, ...vals);
+    return `<div class="chart"><div class="sech">${title}</div><div class="cbars">${keys.map((k, i) => `<div class="cb ${k === hiKey ? 'on' : ''}" title="${esc(lab(k))}: ${fmt(vals[i])}">
+      <span class="cv">${vals[i] ? fmt(vals[i]) : ''}</span><span class="cbar" style="height:${Math.max(vals[i] ? 6 : 2, vals[i] / mx * 100)}%"></span><span class="cl">${esc(lab(k))}</span></div>`).join('')}</div></div>`; };
+  const dayLab = d => d === today ? 'Today' : new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short' });
+  const wkLab = w => new Date(w + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const card = o => `<button class="dcard ${o.status === 'new' && o.prep_date < today ? 'late' : ''}" data-o="${o.id}">
+      <span class="dn">${esc(cust(o.customer_id)?.name)}</span>
+      <span class="ds">${o.status === 'new' ? (o.prep_date < today ? `<b class="late-t">Late · ${ukDate(o.prep_date)}</b>` : o.prep_date === today ? 'Today' : ukDate(o.prep_date))
+        : o.status === 'fulfilled' ? 'Delivered ' + ukDate(o.delivery_date) : (o.invoice_number ? esc(o.invoice_number) + ' · ' : '') + ukDate((o.invoiced_at || '').slice(0, 10))}</span>
+      <span class="ds">${o.birds ? qf(o.birds) + ' chickens · ' : ''}${o.lines.length} item${o.lines.length === 1 ? '' : 's'}</span></button>`;
+  const column = (title, list, cls, none) => `<div class="dcol ${cls}"><div class="dch"><span>${title}</span><b>${list.length}</b></div>${list.map(card).join('') || `<div class="pempty">${none}</div>`}</div>`;
+  const packSorted = [...toPack].sort((a, b) => (a.prep_date || '').localeCompare(b.prep_date || '') || a.id - b.id);
   $('#view').innerHTML = `
-    <div class="hello"><b>${hi}, ${esc(name)} 👋</b><span>${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</span></div>
-    <div class="tiles">${tiles.join('')}</div>
-    ${role !== 'invoicing' ? `<div class="minis">${role === 'admin' ? '<button class="btn" data-go="orders">☰ All orders</button>' : ''}<button class="btn" id="d-prep">+ Prep task</button><button class="btn" id="d-shop">+ Shop order</button></div>` : '<div class="minis"></div>'}
-    <div class="sech">Carry on</div>
-    ${lateFirst.length ? lateFirst.slice(0, 15).map(o => `<div class="carry ${o.status === 'new' && o.prep_date < today ? 'late' : ''}" data-o="${o.id}">
-        <div style="min-width:0"><div class="cn">${esc(cust(o.customer_id)?.name)} <span class="cs">#${o.id}</span></div>
-        <div class="cs">${o.status === 'new' ? (o.prep_date < today ? `<b class="late-t">Late · was ${ukDate(o.prep_date)}</b>` : 'Prepare ' + ukDate(o.prep_date)) : 'Delivered ' + ukDate(o.delivery_date)}${o.birds ? ` · ${qf(o.birds)} chickens` : ''} · ${o.lines.length} item${o.lines.length === 1 ? '' : 's'}</div>${steps(o.status, true)}</div>
-        ${nextWord(o) === 'Waiting' ? '<span class="cs" style="margin-left:auto">Waiting</span>' : `<button class="go2" data-c="${o.id}">${nextWord(o)} →</button>`}</div>`).join('')
-      : '<div class="empty">All done 👍</div>'}`;
-  document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { const [t, s] = b.dataset.go.split('/'); if (t === 'inv' && s) I.tab = s; else if (t === 'inv') I.tab = 'todo'; go(t); });
-  if ($('#d-prep')) { $('#d-prep').onclick = () => taskModal('prep'); $('#d-shop').onclick = () => taskModal('shop'); }
-  document.querySelectorAll('.carry').forEach(r => r.onclick = e => {
-    if (e.target.closest('[data-c]')) return safe(() => continueOrder(Number(r.dataset.o)));
-    if (role === 'admin') go('order/' + r.dataset.o); else safe(() => continueOrder(Number(r.dataset.o)));
-  });
+    <div class="hello"><b>${hi}, ${esc(name)} 👋</b><span>${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+      ${role === 'admin' ? '<button class="big" id="d-new" style="margin-left:14px">+ New order</button>' : ''}</span></div>
+    <div class="kpis">
+      ${kpi(todayN, 'To pack today', late ? `${late} late` : 'none late', late ? 'bad' : '')}
+      ${kpi(toInv.length, 'To invoice')}
+      ${money0 ? kpi(short(thisWk), 'Invoiced this week', lastWk ? `${thisWk >= lastWk ? '▲' : '▼'} last week ${short(lastWk)}` : '') : kpi(tasks.filter(t => t.kind === 'prep').length, 'Prep tasks open')}
+      ${money0 ? kpi(birdsWk.toLocaleString('en-GB'), 'Chickens this week') : kpi(tasks.filter(t => t.kind === 'shop').length, 'Shop orders open')}
+    </div>
+    <div class="charts">
+      ${money0 ? chart('Invoiced per week', weeks, weeks.map(w => perWeek[w]), wkLab, short, weekStart(0)) : ''}
+      ${chart('Orders to pack – next 7 days', days, days.map(d => load[d]), dayLab, v => String(v), today)}
+    </div>
+    <div class="dcols">
+      ${column('To pack', packSorted, 'c1', 'Nothing to pack 👍')}
+      ${column('To invoice', toInv, 'c2', 'Nothing to invoice')}
+      ${column('Done this week', done, 'c3', 'Nothing yet')}
+    </div>`;
+  if ($('#d-new')) $('#d-new').onclick = () => go('new');
+  document.querySelectorAll('.dcard').forEach(b => b.onclick = () => role === 'admin' ? go('order/' + b.dataset.o) : safe(() => continueOrder(Number(b.dataset.o))));
 }
 
 /* ================= ORDERING: every order ================= */
