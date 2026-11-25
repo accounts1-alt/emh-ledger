@@ -1017,7 +1017,7 @@ async function openWeigh(o) {
         continue;
       }
       for (const r of (l.pack || [])) {
-        if (r.packed === '') throw new Error(`${n} – “${r.how}”: fill in how many were packed`);
+        if (r.packed === '' || r.packed == null) r.packed = '0';   // left empty = none of this one was sent
         if (!isNum(r.packed) || (r.kg !== '' && r.kg != null && !isNum(r.kg))) throw new Error(`${n} – “${r.how}”: packed and kg must be numbers`);
         if (autoKg(l) && Number(r.packed) > 0 && !isNum(r.kg)) throw new Error(`${n} – “${r.how}”: fill in the kg (${qf(r.packed)} packed)`);
         if (resaleOn && (r.rp === '' || !isNum(r.rp))) throw new Error(`${n} – “${r.how}”: fill in the resale price — or switch Resale off`);
