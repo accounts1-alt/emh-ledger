@@ -146,7 +146,9 @@ async function sync(who: string) {
     contacts.push(...c);
     if (c.length < 500) break;
   }
-  const xc = contacts.filter(c => c.ContactStatus === 'ACTIVE' && c.IsCustomer === true);   // only contacts Xero marks as customers (have sales invoices)
+  // Xero only marks a contact as a customer after its first sales invoice, so a brand-new contact is neither.
+  // Bring in everything except suppliers that have never been invoiced.
+  const xc = contacts.filter(c => c.ContactStatus === 'ACTIVE' && (c.IsCustomer === true || c.IsSupplier !== true));
   const { data: appC } = await db.from('ord_customers').select('*');
   const cById = new Map((appC ?? []).filter(c => c.xero_contact_id).map(c => [c.xero_contact_id, c]));
   const cUnlinked = new Map((appC ?? []).filter(c => !c.xero_contact_id && !c.is_test).map(c => [norm(c.name), c]));
