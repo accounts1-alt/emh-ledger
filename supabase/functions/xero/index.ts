@@ -95,22 +95,33 @@ async function send(orderId: number, who: string) {
   const price = new Map((prices ?? []).map(p => [p.line_id, Number(p.price)]));
   // invoice lines worked out from the customer's price list (if any) replace the one-line-per-item invoice
   const { data: ils } = await db.from('ord_invoice_lines').select('*').eq('order_id', orderId).order('position');
-  const { data: items } = await db.from('ord_items').select('id, name, xero_code, xero_tax_type, xero_account').in('id', [...lines.map(l => l.item_id), ...(ils ?? []).map(x => x.item_id).filter(Boolean)]);
+  const { data: items } = await db.from('ord_items').select('id, name, xero_code, xero_name, xero_tax_type, xero_account').in('id', [...lines.map(l => l.item_id), ...(ils ?? []).map(x => x.item_id).filter(Boolean)]);
   const item = new Map((items ?? []).map(i => [i.id, i]));
   const { data: cust } = await db.from('ord_customers').select('id, name, xero_contact_id, is_test').eq('id', o.customer_id).single();
   if (cust?.is_test) throw new Fail('This is a test customer – it is never sent to Xero');
   const { data: tx } = await db.from('ord_settings').select('value').eq('key', 'xero_tax_type').maybeSingle();
   const taxType = tx?.value || 'ZERORATEDOUTPUT';
 
-  const unitW = (u: string) => u === 'kg' ? 'kg' : u === 'pack' ? 'packets' : 'units';
-  const LineItems = ils?.length ? ils.map(x => {
-    if (x.price == null || x.qty == null) throw new Fail(`${x.description}: fill in the ${x.qty == null ? 'quantity' : 'price'}`);
-    const it = item.get(x.item_id) ?? lines.map(l => item.get(l.item_id)).find(Boolean);
-    const li: Record<string, unknown> = { Description: `${x.description} (${Number(x.qty)} ${unitW(x.unit)})`, Quantity: Number(x.qty), UnitAmount: Number(x.price),
-      AccountCode: it?.xero_account || SALES_ACCOUNT, TaxType: it?.xero_tax_type || taxType };
-    if (it?.xero_code) li.ItemCode = it.xero_code;
-    return li;
-  }) : lines.map(l => {
+  // invoice lines are grouped by the Xero item each app item is linked to: one combined line per Xero item
+  let LineItems: Record<string, unknown>[];
+  if (ils?.length) {
+    const groups = new Map<string, { code: string; name: string; tax: string; acct: string; kg: number; total: number; allKg: boolean }>();
+    for (const x of ils) {
+      if (x.price == null || x.qty == null) throw new Fail(`${x.description}: fill in the ${x.qty == null ? 'quantity' : 'price'}`);
+      const it = item.get(x.item_id);
+      if (!it?.xero_code) throw new Fail(`“${it?.name ?? x.description}” is not linked to a Xero item yet – link it in Xero links`);
+      const g = groups.get(it.xero_code) ?? { code: it.xero_code, name: it.xero_name || it.name, tax: it.xero_tax_type || taxType, acct: it.xero_account || SALES_ACCOUNT, kg: 0, total: 0, allKg: true };
+      g.total += Math.round(Number(x.qty) * Number(x.price) * 100) / 100;
+      if (x.unit === 'kg') g.kg += Number(x.qty); else g.allKg = false;
+      groups.set(it.xero_code, g);
+    }
+    LineItems = [...groups.values()].map(g => {
+      const total = Math.round(g.total * 100) / 100, kg = Math.round(g.kg * 1000) / 1000;
+      const byKg = g.allKg && kg > 0;
+      return { ItemCode: g.code, Description: `${g.name}${kg ? ` – ${kg} kg` : ''}`, Quantity: byKg ? kg : 1, UnitAmount: byKg ? Math.round(total / kg * 10000) / 10000 : total,
+        AccountCode: g.acct, TaxType: g.tax };
+    });
+  } else LineItems = lines.map(l => {
     const p = price.get(l.id), it = item.get(l.item_id)!;
     if (p == null) throw new Fail(`No price for ${it.name}`);
     // Xero's API does not copy an item's VAT onto the line (it uses the account's), so send the item's own
@@ -126,7 +137,7 @@ async function send(orderId: number, who: string) {
     Contact: { ContactID: await contactFor(cust!) },
     Date: today, DueDate: today, Reference: `Order #${o.id}`, LineItems,
   };
-  const res = await xero('Invoices', { method: 'PUT', headers: { 'Idempotency-Key': `emh-order-${o.id}-${Math.floor(Date.now() / 120000)}` }, body: JSON.stringify({ Invoices: [inv] }) });
+  const res = await xero('Invoices?unitdp=4', { method: 'PUT', headers: { 'Idempotency-Key': `emh-order-${o.id}-${Math.floor(Date.now() / 120000)}` }, body: JSON.stringify({ Invoices: [inv] }) });
   const x = res.Invoices?.[0];
   if (!x?.InvoiceID) throw new Fail('Xero did not return an invoice');
   await db.from('ord_orders').update({ status: 'invoiced', invoiced_at: new Date().toISOString(), invoiced_by: who, invoice_number: x.InvoiceNumber, xero_invoice_id: x.InvoiceID }).eq('id', o.id);
@@ -184,7 +195,7 @@ async function sync(who: string) {
   try { itemsResp = await xero('Items'); }
   catch (e) { await saveStamp(who, res, 'Items: ' + (e as Error).message); throw new Fail('Customers synced, but Xero would not give the item list – click Reconnect in Settings (Xero needs to approve reading items), then Sync again.'); }
   const xi = (itemsResp.Items ?? []).filter((i: { IsSold?: boolean }) => i.IsSold !== false) as { ItemID: string; Code: string; Name?: string; SalesDetails?: { TaxType?: string; AccountCode?: string } }[];
-  const { data: appI } = await db.from('ord_items').select('*');
+  const { data: appI } = await db.from('ord_items').select('*').eq('list', 'xero');   // only Xero's own catalogue; the app's item lists are never touched
   const iById = new Map((appI ?? []).filter(i => i.xero_item_id).map(i => [i.xero_item_id, i]));
   const iByCode = new Map((appI ?? []).filter(i => !i.xero_item_id && i.xero_code).map(i => [i.xero_code, i]));
   const iUnlinked = new Map((appI ?? []).filter(i => !i.xero_item_id && !i.xero_code).map(i => [norm(i.name), i]));
@@ -261,6 +272,12 @@ Deno.serve(async req => {
     if (b.action === 'sync') {
       if (me.role !== 'admin') throw new Fail('Only admins can sync with Xero');
       return json(await sync(me.email));
+    }
+    if (b.action === 'contacts') {
+      if (!['admin', 'invoicing'].includes(me.role)) throw new Fail('Not allowed');
+      const all: { ContactID: string; Name: string; ContactStatus: string; IsCustomer?: boolean }[] = [];
+      for (let page = 1; page < 50; page++) { const r = await xero(`Contacts?page=${page}&pageSize=500&summaryOnly=true`); const c = r.Contacts ?? []; all.push(...c); if (c.length < 500) break; }
+      return json({ contacts: all.filter(c => c.ContactStatus === 'ACTIVE').map(c => ({ id: c.ContactID, name: c.Name, customer: !!c.IsCustomer })).sort((a, b) => a.name.localeCompare(b.name)) });
     }
     if (b.action === 'send') {
       if (!['admin', 'invoicing'].includes(me.role)) throw new Fail('Only invoicing can send invoices');
