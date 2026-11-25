@@ -166,7 +166,8 @@
   .pkr { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
   .pkr .pq { width: 80px; text-align: right; flex: none; } .pkr .ph { flex: 1; }
   .pkf { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; } .pkl { margin-left: auto; display: flex; gap: 10px; align-items: center; } .pkl select { width: auto; padding: 6px 8px; font-size: 14px; }
-  .copybar { display: flex; gap: 12px; align-items: center; margin: 4px 0 10px; } .copybar .btn { flex: none; }
+  .copybar { display: flex; gap: 10px; align-items: center; margin: 4px 0 10px; flex-wrap: wrap; } .copybar .btn { flex: none; }
+  .tplb { background: #fff7d6; border: 1px solid #e0c870; color: #6b4b00; font-weight: 700; }
   .ilh { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; } .ilh .chk { font-weight: 500; color: #555; display: flex; gap: 6px; align-items: center; cursor: pointer; } .ilh .chk input { width: auto; margin: 0; }
   .rpb { display: inline-flex; align-items: center; gap: 3px; flex: none; color: #6b4b00; font-weight: 600; } .rpb .rpi { width: 78px; } .rpb .rps { width: auto; padding: 6px 4px; }
   .pkchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -247,6 +248,11 @@
   .irow { display: grid; grid-template-columns: minmax(0,1fr) 100px 150px 90px; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee; font-size: 15px; }
   .irow.ih { font-size: 12px; color: #999; padding: 6px 0; } .irow > span:nth-child(n+2) { text-align: right; }
   .mbox.wide { max-width: 980px; }
+  .tplsec { margin-top: 16px; } .tplsec > b { font-size: 16px; }
+  .tpw { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; } .tpw input { width: 90px; } .tpw select { width: auto; padding: 8px 4px; } .tpw span { font-weight: 600; color: #555; margin-left: 6px; }
+  .tph, .tpr { display: grid; grid-template-columns: minmax(0, 2fr) 70px 76px 84px 76px 92px 76px 92px 24px; gap: 6px; align-items: center; }
+  .tph { font-size: 11px; font-weight: 700; color: #777; text-transform: uppercase; margin: 8px 0 4px; } .tpr { margin-bottom: 6px; } .tpr input, .tpr select { padding: 8px 6px; font-size: 15px; } .tpr select { padding: 8px 2px; }
+  @media (max-width: 860px) { .tph { display: none; } .tpr { grid-template-columns: 1fr 1fr 1fr; } .tpr input[data-f="how"] { grid-column: 1 / -1; } }
   .prh, .prr { display: grid; grid-template-columns: minmax(0, 2fr) 90px 150px 90px 150px 28px; gap: 8px; align-items: center; }
   .prh { font-size: 12px; font-weight: 700; color: #777; text-transform: uppercase; margin: 6px 0; } .prr { margin-bottom: 8px; } .prr select { padding: 8px 4px; }
   @media (max-width: 760px) { .prh { display: none; } .prr { grid-template-columns: 1fr 1fr; } .prr input[data-f="applies_to"] { grid-column: 1 / -1; } }
@@ -468,7 +474,17 @@ async function packResaleFor(packIds) {
   for (let i = 0; i < packIds.length; i += 150) (await q(sb.from('ord_packing_resale').select('*').in('packing_id', packIds.slice(i, i + 150)))).forEach(r => out[r.packing_id] = r.price);
   return out;
 }
-let PACK_WORDS = [], PRESETS = [], GK = null, PLISTS = [], LAST_UNIT = {};
+let PACK_WORDS = [], PRESETS = [], GK = null, PLISTS = [], LAST_UNIT = {}, TEMPLATES = [];
+async function loadTemplates() { try { TEMPLATES = role === 'admin' ? await q(sb.from('ord_templates').select('*').order('name')) : []; } catch { TEMPLATES = []; } }
+// a template's charges in price-list form: '' = all products, otherwise one product
+const tplRules = t => {
+  const w = t.whole || {}, out = [];
+  const has = x => isNum(x.meat_price) || isNum(x.proc_price);
+  const r = (applies_to, x) => ({ applies_to, meat_price: isNum(x.meat_price) ? Number(x.meat_price) : null, meat_per: x.meat_per || 'kg', proc_price: isNum(x.proc_price) ? Number(x.proc_price) : null, proc_per: x.proc_per || 'kg' });
+  if (has(w)) out.push(r('', w));
+  (t.rows || []).forEach(x => { if ((x.how || '').trim() && has(x)) out.push(r(x.how.trim(), x)); });
+  return out;
+};
 async function loadPresets() { try { PRESETS = await q(sb.from('ord_packing_presets').select('*').order('text')); } catch { PRESETS = []; } }
 async function loadPLists() { try { PLISTS = await q(sb.from('ord_packing_lists').select('*').order('name')); } catch { PLISTS = []; } }
 async function loadPackWords() {
@@ -495,10 +511,25 @@ async function orderScreen(id) {
   } else {
     O = { id: null, customer_id: null, delivery_date: isoDay(0), prep_date: isoDay(0), notes: '', status: 'new', lines: [{ item_id: null, qty_ordered: '', unit: '' }], prices: {} };
   }
-  await loadPackWords();
+  await loadPackWords(); await loadTemplates();
+  if (O.id && role === 'admin') { const ch = await q(sb.from('ord_order_charges').select('template_id').eq('order_id', O.id)); O.tplId = ch[0]?.template_id ?? null; }
   // items remember how they were last ordered (kg or units)
   try { const r = await q(sb.from('ord_lines').select('item_id, unit').not('unit', 'is', null).order('id', { ascending: false }).limit(3000)); LAST_UNIT = {}; r.forEach(x => { if (!LAST_UNIT[x.item_id]) LAST_UNIT[x.item_id] = x.unit; }); } catch {}
   drawOrder();
+}
+/* Use a template: adds its item with the usual packets and resale prices; the invoice will use its charges */
+function useTemplate(t) {
+  if (!t) return;
+  const rows = (t.rows || []).filter(r => (r.how || '').trim());
+  const total = rows.reduce((a, r) => a + (isNum(r.qty) ? Number(r.qty) : 0), 0);
+  const line = { item_id: t.item_id, unit: t.unit || 'units', qty_ordered: total ? qf(total) : '',
+    packing: rows.map(r => ({ qty_planned: isNum(r.qty) ? qf(r.qty) : '', how: r.how.trim(), rp_price: isNum(r.rp_price) ? qf(r.rp_price) : undefined, rp_per: r.rp_per || 'kg' })) };
+  const empty = O.lines.filter(l => !l.item_id && !l.added_by_ops);
+  if (O.lines.every(l => !l.item_id)) O.lines = [line]; else { O.lines = O.lines.filter(l => !empty.includes(l)); O.lines.push(line); }
+  if (rows.some(r => isNum(r.rp_price))) O.plan_on = true;
+  O.tplId = t.id;
+  const notes = O.notes; drawOrder(); $('#o-notes').value = notes;
+  toast(`“${t.name}” added – change the numbers and save`);
 }
 /* Copy last order: bring back this customer's previous order (items, units, packing, resale prices, notes) */
 async function lastOrderFor(cid) {
@@ -531,7 +562,7 @@ function drawOrder() {
       <div><label>Prepare on</label><input type="date" id="o-prep" value="${esc(o.prep_date)}"></div>
       <div><label>Delivery date</label><input type="date" id="o-del" value="${esc(o.delivery_date)}"></div>
     </div>
-    ${o.id ? '' : '<div id="o-copy" class="copybar hide"></div>'}
+    <div id="o-copy" class="copybar hide"></div>
     <div class="ilh"><label>Items</label><label class="chk"><input type="checkbox" id="o-rp" ${o.plan_on ? 'checked' : ''}> Customer resale prices</label></div>
     <div id="o-lines"></div>
     <datalist id="pack-words">${PACK_WORDS.map(w => `<option value="${esc(w)}">`).join('')}</datalist>
@@ -548,19 +579,24 @@ function drawOrder() {
   ${o.id ? '<div class="card" id="o-hist"><h2>History</h2><p class="muted">Loading…</p></div>' : ''}`;
   combo($('#c-cust'), { list: () => customers, value: o.customer_id, placeholder: 'Type customer name…', addWord: 'customer', onAdd: newCustomer,
     onPick: id => { o.customer_id = id; showCopy(); const f = document.querySelector('#o-lines .c input'); if (f && !O.lines[0].item_id) f.focus(); } });
+  // after choosing the customer: their templates + copy last order
   const showCopy = () => safe(async () => {
-    const bar = $('#o-copy'); if (!bar || !o.customer_id) return;
-    const last = await lastOrderFor(o.customer_id);
-    if (!last) { bar.classList.add('hide'); return; }
+    const bar = $('#o-copy'); if (!bar || !o.customer_id || locked) return;
+    const tpls = TEMPLATES.filter(t => t.customer_id === o.customer_id);
+    const last = o.id ? null : await lastOrderFor(o.customer_id);
+    const used = TEMPLATES.find(t => t.id === o.tplId);
+    if (!tpls.length && !last && !used) { bar.classList.add('hide'); return; }
     bar.classList.remove('hide');
-    bar.innerHTML = `<button class="btn blue" id="o-copybtn">↺ Copy last order</button><span class="muted">#${last.id} · delivered ${ukDate(last.delivery_date)}</span>`;
-    $('#o-copybtn').onclick = () => safe(async () => {
-      const filled = O.lines.some(l => l.item_id);
-      if (filled && !confirm('Replace the items you have entered with the last order?')) return;
+    bar.innerHTML = `${tpls.map(t => `<button class="btn ${t.id === o.tplId ? 'blue' : 'tplb'}" data-tpl="${t.id}">${t.id === o.tplId ? '✓ ' : '+ '}${esc(t.name)}</button>`).join('')}
+      ${last ? `<button class="btn" id="o-copybtn">↺ Copy last order</button><span class="muted">#${last.id} · ${ukDate(last.delivery_date)}</span>` : ''}
+      ${o.id && used ? '<span class="muted">invoice is worked out from the ticked template</span>' : ''}`;
+    bar.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => useTemplate(TEMPLATES.find(t => t.id == b.dataset.tpl)));
+    $('#o-copybtn')?.addEventListener('click', () => safe(async () => {
+      if (O.lines.some(l => l.item_id) && !confirm('Replace the items you have entered with the last order?')) return;
       await copyOrder(last.id);
-    });
+    }));
   });
-  if (!o.id && o.customer_id) showCopy();
+  if (o.customer_id) showCopy();
   drawLines();
   $('#o-prep').oninput = e => o.prep_date = e.target.value;
   $('#o-del').oninput = e => { o.delivery_date = e.target.value; if (o.prep_date > o.delivery_date) { o.prep_date = o.delivery_date; $('#o-prep').value = o.prep_date; } };
@@ -608,8 +644,7 @@ function drawLines(focusLast) {
           <button class="link pksave ${(r.how || '').trim() && !isPreset(r.how) ? '' : 'hide'}" data-save="${j}" title="Save to packing options">save</button>
           <button class="link" data-x="${j}" aria-label="Remove packing line">✕</button></div>`).join('')}
         <div class="pkf"><button class="link" data-addp>+ Add packing line</button><span class="muted" data-hint>${hint}</span>
-          <span class="pkl">${PLISTS.length ? `<select data-uselist><option value="">Use a saved list…</option>${PLISTS.map(p => `<option value="${p.id}">${esc(p.name)} (${p.rows.length})</option>`).join('')}</select>` : ''}
-          <button class="link ${l.packing.filter(r => (r.how || '').trim()).length >= 2 ? '' : 'hide'}" data-savelist>Save this list</button></span></div>
+          <span class="pkl"><button class="link ${l.packing.filter(r => (r.how || '').trim()).length >= 2 ? '' : 'hide'}" data-savelist>Save as template</button></span></div>
         ${PRESETS.length ? `<div class="pkchips">${PRESETS.map(p => `<button type="button" class="pkchip" data-preset="${esc(p.text)}">+ ${esc(p.text)}</button>`).join('')}</div>` : ''}`;
       const upHint = () => { const pl = l.packing.reduce((a, r) => a + (isNum(r.qty_planned) ? Number(r.qty_planned) : 0), 0); const h = pb.querySelector('[data-hint]'); if (h) h.textContent = isNum(l.qty_ordered) ? `${qf(pl)} of ${qf(l.qty_ordered)} ${U(l.unit)} planned` : ''; };
       pb.querySelectorAll('.pq').forEach(i => i.oninput = () => { l.packing[i.dataset.j].qty_planned = i.value.trim(); upHint(); });
@@ -636,12 +671,17 @@ function drawLines(focusLast) {
         toast(`Added “${pl.name}” – check the numbers`);
       });
       pb.querySelector('[data-savelist]')?.addEventListener('click', () => safe(async () => {
-        const name = (prompt('Name for this packing list (e.g. "K Market beef")', item(l.item_id)?.name || '') || '').trim(); if (!name) return;
-        const rows = l.packing.filter(r => (r.how || '').trim()).map(r => ({ how: r.how.trim(), qty: isNum(r.qty_planned) ? Number(r.qty_planned) : null }));
-        const ex = PLISTS.find(p => p.name.trim().toLowerCase() === name.toLowerCase());
-        if (ex) { if (!confirm(`Replace the saved list “${ex.name}”?`)) return; await q(sb.from('ord_packing_lists').update({ rows }).eq('id', ex.id)); }
-        else await q(sb.from('ord_packing_lists').insert({ name, rows }));
-        await loadPLists(); toast(`Saved list “${name}”`); drawPack();
+        if (!O.customer_id) throw new Error('Choose the customer first – templates belong to a customer');
+        if (!l.item_id) throw new Error('Choose the item first');
+        const cn = cust(O.customer_id)?.name || '';
+        const name = (prompt(`Template name for ${cn} (e.g. "Beef – own meat")`, item(l.item_id)?.name || '') || '').trim(); if (!name) return;
+        const rows = l.packing.filter(r => (r.how || '').trim()).map(r => ({ how: r.how.trim(), qty: isNum(r.qty_planned) ? Number(r.qty_planned) : null, rp_price: isNum(r.rp_price) ? Number(r.rp_price) : null, rp_per: r.rp_per || 'kg' }));
+        const ex = TEMPLATES.find(t => t.customer_id === O.customer_id && t.name.trim().toLowerCase() === name.toLowerCase());
+        if (ex) { if (!confirm(`Replace the products in “${ex.name}”? Its charges stay as they are.`)) return;
+          const keep = new Map((ex.rows || []).map(r => [(r.how || '').trim().toLowerCase(), r]));
+          await q(sb.from('ord_templates').update({ item_id: l.item_id, unit: l.unit || 'units', rows: rows.map(r => ({ ...keep.get(r.how.toLowerCase()), ...r })), updated_at: new Date().toISOString() }).eq('id', ex.id)); }
+        else await q(sb.from('ord_templates').insert({ customer_id: O.customer_id, name, item_id: l.item_id, unit: l.unit || 'units', rows }));
+        await loadTemplates(); toast(`Template “${name}” saved – add its charges in Settings → Customers → ${cn}`); drawOrder();
       }));
       pb.querySelector('[data-addp]').onclick = () => { l.packing.push({ qty_planned: '', how: '' }); drawPack(); pb.querySelectorAll('.pq')[l.packing.length - 1].focus(); };
     };
@@ -700,6 +740,8 @@ function saveOrder() {
       ? l.packing.filter(r => (r.how || '').trim() && isNum(r.rp_price)).map(r => ({ item_id: l.item_id, how: r.how.trim(), price: r.rp_price, per: r.rp_per || 'kg' }))
       : isNum(l.rp_price) ? [{ item_id: l.item_id, how: '', price: l.rp_price, per: l.rp_per || 'kg' }] : []);
     if (o.plan_on || o.id) await q(sb.rpc('ord_set_plan_resale', { p_order: o.id || id, p_rows: plan }));
+    const tpl = TEMPLATES.find(t => t.id === o.tplId && t.customer_id === o.customer_id);
+    if (tpl) await q(sb.rpc('ord_set_order_charges', { p_order: o.id || id, p_template: tpl.id, p_rules: tplRules(tpl) }));
     toast(o.id ? 'Saved' : `Order #${id} saved`);
     go('home');
   });
@@ -1153,12 +1195,14 @@ async function invScreen() {
   const ids = orders.flatMap(o => o.lines.map(l => l.id));
   const [prices, pk, ils, rl] = I.tab === 'waiting' ? [{}, {}, [], []] : await Promise.all([pricesFor(ids), packingFor(ids),
     orders.length ? q(sb.from('ord_invoice_lines').select('order_id, qty, price').in('order_id', orders.map(o => o.id))) : [], q(sb.from('ord_price_rules').select('customer_id'))]);
+  const chg = I.tab === 'waiting' || !orders.length ? [] : await q(sb.from('ord_order_charges').select('order_id').in('order_id', orders.map(o => o.id)));
+  const hasChg = new Set(chg.map(x => x.order_id));
   orders.forEach(o => o.lines.forEach(l => { l.price = prices[l.id] ?? ''; l.pack = pk[l.id] || []; }));
   const ruled = new Set(rl.map(r => r.customer_id));
   const lt = l => isNum(l.price) && l.qty_net != null ? Math.round(Number(l.qty_net) * Number(l.price) * 100) / 100 : null;
   const ilOf = o => ils.filter(x => x.order_id === o.id);
   const tot = o => ilOf(o).length ? ilOf(o).reduce((s, x) => s + (x.qty != null && x.price != null ? Math.round(x.qty * x.price * 100) / 100 : 0), 0) : o.lines.reduce((s, l) => s + (lt(l) ?? 0), 0);
-  const missing = o => ilOf(o).length ? ilOf(o).some(x => x.price == null || x.qty == null) : ruled.has(o.customer_id) ? false : o.lines.some(l => !isNum(l.price));
+  const missing = o => ilOf(o).length ? ilOf(o).some(x => x.price == null || x.qty == null) : ruled.has(o.customer_id) || hasChg.has(o.id) ? false : o.lines.some(l => !isNum(l.price));
   const nTodo = cnt.filter(c => c.status === 'fulfilled').length, nWait = cnt.filter(c => c.status === 'new').length;
   const today = isoDay(0);
   const dateOf = o => I.tab === 'done' ? (o.invoiced_at || '').slice(0, 10) : I.tab === 'waiting' ? o.prep_date : o.delivery_date;
@@ -1167,7 +1211,7 @@ async function invScreen() {
   const card = o => {
     if (I.tab === 'waiting') return `<div class="pcard flat"><div class="pcn">${esc(cust(o.customer_id)?.name)}</div><div class="pci">${itemsShort(o, false)}</div></div>`;
     const t = tot(o);
-    return `<button class="pcard icard" data-o="${o.id}"><div class="icl"><div class="pcn">${esc(cust(o.customer_id)?.name)}${I.tab === 'todo' && missing(o) ? ' <span class="tg tg-ed">prices needed</span>' : ''}${I.tab === 'todo' && ruled.has(o.customer_id) && !ilOf(o).length ? ' <span class="tg tg-ok">price list</span>' : ''}</div>
+    return `<button class="pcard icard" data-o="${o.id}"><div class="icl"><div class="pcn">${esc(cust(o.customer_id)?.name)}${I.tab === 'todo' && missing(o) ? ' <span class="tg tg-ed">prices needed</span>' : ''}${I.tab === 'todo' && (hasChg.has(o.id) || ruled.has(o.customer_id)) && !ilOf(o).length ? ` <span class="tg tg-ok">${hasChg.has(o.id) ? 'template' : 'price list'}</span>` : ''}</div>
       <div class="pci">#${o.id} · ${o.lines.length} item${o.lines.length === 1 ? '' : 's'}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}</div></div><div class="icr">${t ? money(t) : '—'}</div></button>`;
   };
   $('#view').innerHTML = `
@@ -1182,7 +1226,9 @@ async function invScreen() {
   document.querySelectorAll('.icard[data-o]').forEach(b => b.onclick = () => safe(() => invOpen(orders.find(o => o.id == b.dataset.o), { lt, tot })));
 }
 async function invOpen(o, opts) {
-  const [rules, saved] = await Promise.all([q(sb.from('ord_price_rules').select('*').eq('customer_id', o.customer_id).order('position')), q(sb.from('ord_invoice_lines').select('*').eq('order_id', o.id).order('position'))]);
+  const [plist, saved, oc] = await Promise.all([q(sb.from('ord_price_rules').select('*').eq('customer_id', o.customer_id).order('position')), q(sb.from('ord_invoice_lines').select('*').eq('order_id', o.id).order('position')),
+    q(sb.from('ord_order_charges').select('rules').eq('order_id', o.id))]);
+  const rules = oc[0]?.rules?.length ? oc[0].rules : plist;   // the order's template charges first, else the customer's price list
   if (rules.length || saved.length) return invOpenRules(o, rules, saved);
   return invOpenSimple(o, opts);
 }
@@ -1197,11 +1243,11 @@ function invOpenRules(o, rules, saved) {
   const side = packLines.length ? `<aside class="iside"><div class="isth">Packing</div>${packLines.map(l => `<div class="isit"><b>${esc(item(l.item_id)?.name)}</b>
       ${l.pack.map(r => `<div class="isr"><span>${r.qty_planned != null ? qf(r.qty_planned) + ' × ' : ''}${esc(r.how)}</span><span>${r.qty_packed != null ? `<b class="${r.qty_planned != null && Number(r.qty_packed) !== Number(r.qty_planned) ? 'late-t' : ''}">${qf(r.qty_packed)}</b> packed` : '—'}${r.weight != null ? ` · ${qf(r.weight)} kg` : ''}</span></div>`).join('')}</div>`).join('')}</aside>` : '';
   const { m, close } = modal(`
-    <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivered ${ukDate(o.delivery_date)}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''} · from the price list</div></div><button class="mx" aria-label="Close">✕</button></div>
+    <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivered ${ukDate(o.delivery_date)}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''} · worked out for you</div></div><button class="mx" aria-label="Close">✕</button></div>
     <div class="${side ? 'igrid' : ''}"><div>
       <div class="ilr ih"><span>Invoice line</span><span>Qty</span><span>Price</span><span class="num">Total</span></div>
       <div data-il></div>
-      ${edit ? `<div class="actions" style="margin-top:8px"><button class="link" data-redo>↻ Work out again from the price list</button></div>` : ''}
+      ${edit ? `<div class="actions" style="margin-top:8px"><button class="link" data-redo>↻ Work out again</button></div>` : ''}
       <div class="total" data-tot></div>
     </div>${side}</div>
     <div class="mf">${edit ? `
@@ -1415,9 +1461,11 @@ async function setupScreen() {
     : (kind === 'c' ? !r.xero_contact_id : !r.xero_code) ? `<span class="tg tg-ed">${kind === 'c' ? 'new – goes to Xero with first invoice' : 'app only – not in Xero'}</span>` : '';
   const rules = await q(sb.from('ord_price_rules').select('customer_id'));
   const hasRules = new Set(rules.map(r => r.customer_id));
+  await loadTemplates();
+  const nT = {}; TEMPLATES.forEach(t => nT[t.customer_id] = (nT[t.customer_id] || 0) + 1);
   const list = (rows, kind) => rows.slice().sort((x, y) => (x.orphaned - y.orphaned) || x.name.localeCompare(y.name))
     .map(r => `<tr style="${r.orphaned ? 'color:#999' : ''}" data-name="${esc(r.name.toLowerCase())}"><td>${esc(r.name)} ${badge(r, kind)}</td>${kind === 'i' ? `<td class="muted num">${esc(r.xero_code || '')}</td>`
-      : `<td style="text-align:right;white-space:nowrap"><button class="link" data-prl="${r.id}">${hasRules.has(r.id) ? '✓ Price list' : '+ Price list'}</button></td>`}</tr>`).join('');
+      : `<td style="text-align:right;white-space:nowrap"><button class="link" data-prl="${r.id}">${(nT[r.id] ? `${nT[r.id]} template${nT[r.id] > 1 ? 's' : ''}` : hasRules.has(r.id) ? 'price list' : '+ Templates & prices')}</button></td>`}</tr>`).join('');
   const nC = customers.filter(c => !c.orphaned).length, nI = items.filter(i => !i.orphaned).length;
   $('#view').innerHTML = `<div class="card"><h2>Xero</h2>
     ${XERO.connected ? `<p>✅ Connected to <b>${esc(XERO.tenant_name)}</b>. Customers and items come from Xero – press <b>Sync with Xero</b> after adding or changing them in Xero.</p>
@@ -1428,9 +1476,6 @@ async function setupScreen() {
       <p class="muted">Lets processing photograph the subtotal labels instead of typing the figures. The key is stored privately – nobody can see it again after saving.</p>
       <p id="s-gk">${GK?.set ? `<b class="ok-t">✓ Key saved</b> <span class="muted">${new Date(GK.set_at).toLocaleDateString('en-GB')} by ${esc(uname(GK.set_by))}</span>` : '<b>No key saved yet</b>'}</p>
       <div class="row"><input id="s-gkin" type="password" autocomplete="off" placeholder="Paste the Gemini API key"><button class="btn blue" style="flex:none" id="s-gksave">Save key</button>${GK?.set ? '<button class="btn" style="flex:none" id="s-gkdel">Remove</button>' : ''}</div></div>
-    <div class="card"><h2>Saved packing lists</h2>
-      <p class="muted">Whole packing lists you can pick in one go when entering an order. Save one from an order with “Save this list”.</p>
-      ${PLISTS.length ? `<table><tbody>${PLISTS.map(p => `<tr><td><b>${esc(p.name)}</b><div class="muted" style="font-size:13px">${p.rows.map(r => (r.qty != null ? qf(r.qty) + ' × ' : '') + esc(r.how)).join(', ')}</div></td><td style="text-align:right"><button class="link" data-pldel="${p.id}">Remove</button></td></tr>`).join('')}</tbody></table>` : '<p class="muted">None saved yet</p>'}</div>
     <div class="card"><h2>Packing options</h2>
       <p class="muted">Saved ways of packing. They show as quick buttons under the packing list when creating an order.</p>
       <div class="pkchips" id="s-pp">${PRESETS.map(p => `<span class="pkchip">${esc(p.text)} <button class="link" data-pp="${p.id}" aria-label="Remove">✕</button></span>`).join('') || '<span class="muted">None saved yet</span>'}</div>
@@ -1456,7 +1501,6 @@ async function setupScreen() {
   const addPP = () => safe(async () => { const t = $('#s-ppin').value.trim(); if (!t) throw new Error('Type the packing option first'); if (isPreset(t)) throw new Error('Already saved');
     await q(sb.from('ord_packing_presets').insert({ text: t })); toast('Saved'); setupScreen(); });
   $('#s-ppadd').onclick = addPP;
-  document.querySelectorAll('[data-pldel]').forEach(b => b.onclick = () => safe(async () => { if (!confirm('Remove this saved list?')) return; await q(sb.from('ord_packing_lists').delete().eq('id', b.dataset.pldel)); setupScreen(); }));
   $('#s-gksave').onclick = () => safe(async () => { const v = $('#s-gkin').value.trim(); if (v.length < 20) throw new Error('Paste the whole key first');
     await q(sb.rpc('ord_set_secret', { p_key: 'gemini_api_key', p_value: v })); toast('Key saved'); setupScreen(); });
   if ($('#s-gkdel')) $('#s-gkdel').onclick = () => safe(async () => { if (!confirm('Remove the Gemini key? Photo labels will stop working.')) return;
@@ -1468,11 +1512,95 @@ async function setupScreen() {
   });
   const filt = (inp, tb) => inp.oninput = () => { const t = inp.value.trim().toLowerCase(); tb.querySelectorAll('tr').forEach(r => r.style.display = r.dataset.name.includes(t) ? '' : 'none'); };
   filt($('#s-fc'), $('#s-tc')); filt($('#s-fi'), $('#s-ti'));
-  document.querySelectorAll('[data-prl]').forEach(b => b.onclick = () => safe(() => priceListModal(Number(b.dataset.prl))));
+  document.querySelectorAll('[data-prl]').forEach(b => b.onclick = () => safe(() => customerModal(Number(b.dataset.prl))));
   $('#s-ac').onclick = () => safe(async () => {
     const n = (prompt('New customer name (as it should appear in Xero):', $('#s-fc').value.trim()) || '').trim(); if (!n) return;
     const dup = customers.find(c => c.name.toLowerCase() === n.toLowerCase()); if (dup) throw new Error(`"${dup.name}" already exists`);
     await newCustomer(n); setupScreen();
+  });
+}
+
+/* One customer: their templates (usual orders with charges) and, as a fallback, their price list */
+async function customerModal(cid) {
+  await loadTemplates();
+  const c = cust(cid), tpls = TEMPLATES.filter(t => t.customer_id === cid);
+  const rl = await q(sb.from('ord_price_rules').select('id').eq('customer_id', cid));
+  const chargeTxt = t => { const r = tplRules(t); if (!r.length) return '<span class="late-t">no charges yet</span>';
+    const w = r.find(x => !x.applies_to); const bits = [];
+    if (w?.meat_price != null) bits.push(`meat ${money(w.meat_price)}/${w.meat_per}`); if (w?.proc_price != null) bits.push(`processing ${money(w.proc_price)}/${w.proc_per}`);
+    const own = r.filter(x => x.applies_to).length; if (own) bits.push(`${own} product price${own > 1 ? 's' : ''}`); return bits.join(' · '); };
+  const { m, close } = modal(`
+    <div class="mh"><div><div class="mt">${esc(c?.name)}</div><div class="ms">Templates are this customer’s usual orders – products, packets, resale prices and how they are charged.</div></div><button class="mx" aria-label="Close">✕</button></div>
+    ${tpls.length ? `<table><tbody>${tpls.map(t => `<tr><td><b>${esc(t.name)}</b><div class="muted" style="font-size:13px">${esc(item(t.item_id)?.name || 'no item')} · ${(t.rows || []).length} product${(t.rows || []).length === 1 ? '' : 's'} · ${chargeTxt(t)}</div></td>
+      <td style="text-align:right;white-space:nowrap"><button class="link" data-ed="${t.id}">Edit</button> &nbsp; <button class="link" data-dl="${t.id}" style="color:#b3261e">Delete</button></td></tr>`).join('')}</tbody></table>` : '<p class="muted">No templates yet.</p>'}
+    <div class="actions"><button class="btn blue" data-new>+ New template</button></div>
+    <p class="muted" style="font-size:13px;margin-top:14px">Orders entered without a template are charged from the ${rl.length ? '' : 'optional '}<button class="link" data-pl>price list</button>${rl.length ? ' (set)' : ''}, or priced by hand.</p>
+    <div class="mf"><button class="mbtn go" data-c>Close</button></div>`);
+  m.querySelector('.mbox').classList.add('wide');
+  m.querySelector('.mx').onclick = close; m.querySelector('[data-c]').onclick = close;
+  m.querySelector('[data-new]').onclick = () => { close(); templateModal(cid, null); };
+  m.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => { close(); templateModal(cid, TEMPLATES.find(t => t.id == b.dataset.ed)); });
+  m.querySelectorAll('[data-dl]').forEach(b => b.onclick = () => safe(async () => { const t = TEMPLATES.find(x => x.id == b.dataset.dl);
+    if (!confirm(`Delete the template “${t.name}”? Orders already entered keep their charges.`)) return;
+    await q(sb.from('ord_templates').delete().eq('id', t.id)); close(); customerModal(cid); }));
+  m.querySelector('[data-pl]').onclick = () => { close(); priceListModal(cid); };
+}
+async function templateModal(cid, t) {
+  await loadPackWords();
+  const c = cust(cid);
+  const T = t ? JSON.parse(JSON.stringify(t)) : { customer_id: cid, name: '', item_id: null, unit: 'units', whole: {}, rows: [] };
+  T.whole = T.whole || {}; T.rows = (T.rows || []).map(r => ({ ...r }));
+  if (!T.rows.length) T.rows.push({ how: '', qty: '', rp_price: '', rp_per: 'kg', meat_price: '', meat_per: 'kg', proc_price: '', proc_per: 'kg' });
+  const v = x => x == null ? '' : qf(x);
+  const per = (val, a, opts) => `<select ${a}>${Object.entries(opts).map(([k, l]) => `<option value="${k}" ${k === (val || 'kg') ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const P3 = { kg: '/kg', pack: '/packet', unit: '/unit' }, P2 = { kg: '/kg', pack: '/packet' };
+  const { m, close } = modal(`
+    <div class="mh"><div><div class="mt">${t ? 'Edit template' : 'New template'} – ${esc(c?.name)}</div><div class="ms">Fill in once. When entering an order, tap the template and only change the numbers.</div></div><button class="mx" aria-label="Close">✕</button></div>
+    <datalist id="pack-words">${PACK_WORDS.map(w => `<option value="${esc(w)}">`).join('')}</datalist>
+    <div class="row">
+      <div style="flex:2 1 220px"><label>Template name</label><input data-n placeholder="e.g. Beef – own meat" value="${esc(T.name)}"></div>
+      <div style="flex:2 1 220px"><label>Item on the order / invoice</label><div data-it></div></div>
+      <div style="flex:none"><label>Counted in</label>${tog(T.unit, '')}</div>
+    </div>
+    <div class="tplsec"><b>How this customer is charged</b> <span class="muted">– for all products. Leave empty what isn’t charged (e.g. no meat price when they buy their own meat).</span>
+      <div class="tpw"><span>Meat £</span><input data-w="meat_price" inputmode="decimal" placeholder="—" value="${esc(v(T.whole.meat_price))}">${per(T.whole.meat_per, 'data-w="meat_per"', P3)}
+        <span>Processing £</span><input data-w="proc_price" inputmode="decimal" placeholder="—" value="${esc(v(T.whole.proc_price))}">${per(T.whole.proc_per, 'data-w="proc_per"', P3)}</div></div>
+    <div class="tplsec"><b>Products</b> <span class="muted">– usual packets and what the customer sells each for. Meat/processing here only if this product is charged differently.</span>
+      <div class="tph"><span>Product</span><span>Packets</span><span>Sells for £</span><span></span><span>Meat £</span><span></span><span>Proc. £</span><span></span><span></span></div>
+      <div data-rows></div><button class="link" data-add>+ Add product</button></div>
+    <div class="mf">${t ? '' : ''}<button class="mbtn ghost" data-c>Cancel</button><button class="mbtn go" data-s>Save template</button></div>`);
+  m.querySelector('.mbox').classList.add('wide');
+  combo(m.querySelector('[data-it]'), { list: () => items, value: T.item_id, placeholder: 'e.g. Assorted Meats', onPick: id => T.item_id = id });
+  m.querySelectorAll('.tog button').forEach(b => b.onclick = () => { T.unit = b.dataset.u; m.querySelectorAll('.tog button').forEach(x => x.classList.toggle('on', x === b)); });
+  m.querySelector('[data-n]').oninput = e => T.name = e.target.value;
+  m.querySelectorAll('[data-w]').forEach(e => e[e.tagName === 'SELECT' ? 'onchange' : 'oninput'] = () => T.whole[e.dataset.w] = e.value.trim());
+  const box = m.querySelector('[data-rows]');
+  const draw = () => {
+    box.innerHTML = T.rows.map((r, i) => `<div class="tpr">
+      <input data-f="how" data-i="${i}" list="pack-words" placeholder="e.g. Minced Beef" value="${esc(r.how || '')}">
+      <input data-f="qty" data-i="${i}" inputmode="decimal" placeholder="—" value="${esc(v(r.qty))}">
+      <input data-f="rp_price" data-i="${i}" inputmode="decimal" placeholder="—" value="${esc(v(r.rp_price))}">${per(r.rp_per, `data-f="rp_per" data-i="${i}"`, P2)}
+      <input data-f="meat_price" data-i="${i}" inputmode="decimal" placeholder="—" value="${esc(v(r.meat_price))}">${per(r.meat_per, `data-f="meat_per" data-i="${i}"`, P3)}
+      <input data-f="proc_price" data-i="${i}" inputmode="decimal" placeholder="—" value="${esc(v(r.proc_price))}">${per(r.proc_per, `data-f="proc_per" data-i="${i}"`, P3)}
+      <button class="link" data-x="${i}" aria-label="Remove">✕</button></div>`).join('');
+    box.querySelectorAll('[data-f]').forEach(e => e[e.tagName === 'SELECT' ? 'onchange' : 'oninput'] = () => T.rows[e.dataset.i][e.dataset.f] = e.value.trim());
+    box.querySelectorAll('[data-x]').forEach(b => b.onclick = () => { T.rows.splice(+b.dataset.x, 1); draw(); });
+  };
+  draw();
+  m.querySelector('[data-add]').onclick = () => { T.rows.push({ how: '', qty: '', rp_price: '', rp_per: 'kg', meat_price: '', meat_per: 'kg', proc_price: '', proc_per: 'kg' }); draw(); box.querySelectorAll('[data-f="how"]')[T.rows.length - 1].focus(); };
+  const back = () => { close(); customerModal(cid); };
+  m.querySelector('.mx').onclick = back; m.querySelector('[data-c]').onclick = back;
+  m.querySelector('[data-s]').onclick = () => safe(async () => {
+    const name = (T.name || '').trim(); if (!name) throw new Error('Give the template a name');
+    if (!T.item_id) throw new Error('Choose the item it goes on (e.g. Assorted Meats)');
+    const num = (x, what) => { if (x === '' || x == null) return null; if (!isNum(x)) throw new Error(`“${x}” is not a number (${what})`); return Number(x); };
+    const whole = { meat_price: num(T.whole.meat_price, 'meat'), meat_per: T.whole.meat_per || 'kg', proc_price: num(T.whole.proc_price, 'processing'), proc_per: T.whole.proc_per || 'kg' };
+    const seen = new Set();
+    const rows = T.rows.filter(r => (r.how || '').trim()).map(r => { const h = r.how.trim(); if (seen.has(h.toLowerCase())) throw new Error(`“${h}” is in the list twice`); seen.add(h.toLowerCase());
+      return { how: h, qty: num(r.qty, h), rp_price: num(r.rp_price, h), rp_per: r.rp_per || 'kg', meat_price: num(r.meat_price, h), meat_per: r.meat_per || 'kg', proc_price: num(r.proc_price, h), proc_per: r.proc_per || 'kg' }; });
+    const rec = { customer_id: cid, name, item_id: T.item_id, unit: T.unit || 'units', whole, rows, updated_at: new Date().toISOString() };
+    if (t) await q(sb.from('ord_templates').update(rec).eq('id', t.id)); else await q(sb.from('ord_templates').insert(rec));
+    toast('Template saved'); back(); if (cur === 'setup') setupScreen();
   });
 }
 
@@ -1517,7 +1645,7 @@ async function priceListModal(cid) {
     }
     await q(sb.from('ord_price_rules').delete().eq('customer_id', cid));
     if (keep.length) await q(sb.from('ord_price_rules').insert(keep.map((r, i) => ({ customer_id: cid, applies_to: r.applies_to, meat_price: r.meat_price || null, meat_per: r.meat_per, proc_price: r.proc_price || null, proc_per: r.proc_per, position: i }))));
-    close(); toast('Price list saved'); setupScreen();
+    close(); toast('Price list saved'); if (cur === 'setup') setupScreen();
   });
 }
 
@@ -1527,16 +1655,16 @@ function workOutInvoice(o, rules) {
   const all = rules.find(r => !r.applies_to.trim());
   const own = name => rules.find(r => r.applies_to.trim() && nm(r.applies_to) === nm(name));
   // an item's own row only replaces the prices it fills in; empty ones come from the "All items" row
-  const ruleFor = name => { const r = own(name); if (!r) return null; if (!all) return r;
-    return { ...r, meat_price: r.meat_price ?? all.meat_price, meat_per: r.meat_price != null ? r.meat_per : all.meat_per, proc_price: r.proc_price ?? all.proc_price, proc_per: r.proc_price != null ? r.proc_per : all.proc_per }; };
+  const ruleFor = name => { const r = own(name); if (!r) return null; if (!all) return { ...r, ownProc: r.proc_price != null };
+    return { ...r, ownProc: r.proc_price != null, meat_price: r.meat_price ?? all.meat_price, meat_per: r.meat_price != null ? r.meat_per : all.meat_per, proc_price: r.proc_price ?? all.proc_price, proc_per: r.proc_price != null ? r.proc_per : all.proc_per }; };
   const out = [], proc = new Map();
   const qtyOf = (t, per) => per === 'kg' ? t.kg : per === 'pack' ? t.packs : t.units;
   const add = (t, r, itemId, both) => {
     if (!r) { out.push({ item_id: itemId, description: t.name, qty: t.kg, unit: 'kg', price: '', kind: 'meat', why: 'no price in the price list' }); return; }
     if (r.meat_price != null && Number(r.meat_price) > 0) out.push({ item_id: itemId, description: both && Number(r.proc_price) > 0 ? `${t.name} – meat` : t.name, qty: qtyOf(t, r.meat_per), unit: r.meat_per, price: qf(r.meat_price), kind: 'meat' });
     if (r.proc_price != null && Number(r.proc_price) > 0) {
-      const k = `${itemId}|${r.proc_price}|${r.proc_per}`;
-      const g = proc.get(k) || { item_id: itemId, description: 'Processing', qty: 0, unit: r.proc_per, price: qf(r.proc_price), kind: 'proc', missing: false };
+      const k = `${itemId}|${r.proc_price}|${r.proc_per}|${r.ownProc ? t.name : ''}`;
+      const g = proc.get(k) || { item_id: itemId, description: r.ownProc ? `Processing – ${t.name}` : 'Processing', qty: 0, unit: r.proc_per, price: qf(r.proc_price), kind: 'proc', missing: false };
       const qn = qtyOf(t, r.proc_per); if (qn == null) g.missing = true; else g.qty += Number(qn);
       proc.set(k, g);
     }
