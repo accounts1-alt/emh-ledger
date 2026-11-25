@@ -165,7 +165,8 @@
   .pkt { font-size: 13px; font-weight: 700; color: #7a5a00; margin-bottom: 6px; }
   .pkr { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
   .pkr .pq { width: 80px; text-align: right; flex: none; } .pkr .ph { flex: 1; }
-  .pkf { display: flex; gap: 12px; align-items: center; }
+  .pkf { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; } .pkl { margin-left: auto; display: flex; gap: 10px; align-items: center; } .pkl select { width: auto; padding: 6px 8px; font-size: 14px; }
+  .copybar { display: flex; gap: 12px; align-items: center; margin: 4px 0 10px; } .copybar .btn { flex: none; }
   .ilh { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; } .ilh .chk { font-weight: 500; color: #555; display: flex; gap: 6px; align-items: center; cursor: pointer; } .ilh .chk input { width: auto; margin: 0; }
   .rpb { display: inline-flex; align-items: center; gap: 3px; flex: none; color: #6b4b00; font-weight: 600; } .rpb .rpi { width: 78px; } .rpb .rps { width: auto; padding: 6px 4px; }
   .pkchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -461,10 +462,11 @@ async function packResaleFor(packIds) {
   for (let i = 0; i < packIds.length; i += 150) (await q(sb.from('ord_packing_resale').select('*').in('packing_id', packIds.slice(i, i + 150)))).forEach(r => out[r.packing_id] = r.price);
   return out;
 }
-let PACK_WORDS = [], PRESETS = [], GK = null;
+let PACK_WORDS = [], PRESETS = [], GK = null, PLISTS = [], LAST_UNIT = {};
 async function loadPresets() { try { PRESETS = await q(sb.from('ord_packing_presets').select('*').order('text')); } catch { PRESETS = []; } }
+async function loadPLists() { try { PLISTS = await q(sb.from('ord_packing_lists').select('*').order('name')); } catch { PLISTS = []; } }
 async function loadPackWords() {
-  await loadPresets();
+  await loadPresets(); await loadPLists();
   try { const rows = await q(sb.from('ord_packing').select('how').order('id', { ascending: false }).limit(500)); PACK_WORDS = [...new Set([...PRESETS.map(p => p.text), ...rows.map(r => r.how)])].slice(0, 120); } catch { PACK_WORDS = PRESETS.map(p => p.text); }
 }
 const isPreset = t => PRESETS.some(p => p.text.trim().toLowerCase() === (t || '').trim().toLowerCase());
@@ -488,7 +490,29 @@ async function orderScreen(id) {
     O = { id: null, customer_id: null, delivery_date: isoDay(0), prep_date: isoDay(0), notes: '', status: 'new', lines: [{ item_id: null, qty_ordered: '', unit: '' }], prices: {} };
   }
   await loadPackWords();
+  // items remember how they were last ordered (kg or units)
+  try { const r = await q(sb.from('ord_lines').select('item_id, unit').not('unit', 'is', null).order('id', { ascending: false }).limit(3000)); LAST_UNIT = {}; r.forEach(x => { if (!LAST_UNIT[x.item_id]) LAST_UNIT[x.item_id] = x.unit; }); } catch {}
   drawOrder();
+}
+/* Copy last order: bring back this customer's previous order (items, units, packing, resale prices, notes) */
+async function lastOrderFor(cid) {
+  const rows = await q(sb.from('ord_orders').select('id, delivery_date').eq('customer_id', cid).order('id', { ascending: false }).limit(1));
+  return rows[0] || null;
+}
+async function copyOrder(fromId) {
+  const src = await q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('id', fromId).single());
+  const ls = src.ord_lines.filter(l => !l.removed && !l.added_by_ops && l.qty_ordered != null).sort((a, b) => a.position - b.position);
+  const pk = await packingFor(ls.map(l => l.id));
+  const plan = await q(sb.from('ord_plan_resale').select('*').eq('order_id', fromId));
+  const pf = (it, how) => plan.find(p => p.item_id === it && (p.how || '') === (how || '').trim());
+  O.lines = ls.map(l => { const a = pf(l.item_id, '');
+    return { item_id: l.item_id, qty_ordered: qf(l.qty_ordered), unit: l.unit || '', rp_price: a ? qf(a.price) : undefined, rp_per: a?.per,
+      packing: (pk[l.id] || []).map(r => { const b = pf(l.item_id, r.how); return { qty_planned: qf(r.qty_planned), how: r.how, rp_price: b ? qf(b.price) : undefined, rp_per: b?.per }; }) }; });
+  if (!O.lines.length) O.lines = [{ item_id: null, qty_ordered: '', unit: '' }];
+  O.plan_on = plan.length > 0;
+  if (!O.notes && src.notes && !/^Rest of order #/.test(src.notes)) O.notes = src.notes;
+  const notes = O.notes; drawOrder(); $('#o-notes').value = notes;
+  toast(`Copied order #${fromId} – change the numbers and save`);
 }
 function drawOrder() {
   const o = O, locked = o.status === 'invoiced';
@@ -501,6 +525,7 @@ function drawOrder() {
       <div><label>Prepare on</label><input type="date" id="o-prep" value="${esc(o.prep_date)}"></div>
       <div><label>Delivery date</label><input type="date" id="o-del" value="${esc(o.delivery_date)}"></div>
     </div>
+    ${o.id ? '' : '<div id="o-copy" class="copybar hide"></div>'}
     <div class="ilh"><label>Items</label><label class="chk"><input type="checkbox" id="o-rp" ${o.plan_on ? 'checked' : ''}> Customer resale prices</label></div>
     <div id="o-lines"></div>
     <datalist id="pack-words">${PACK_WORDS.map(w => `<option value="${esc(w)}">`).join('')}</datalist>
@@ -516,7 +541,20 @@ function drawOrder() {
   ${o.id && o.status !== 'new' ? sentSummary(o) : ''}
   ${o.id ? '<div class="card" id="o-hist"><h2>History</h2><p class="muted">Loading…</p></div>' : ''}`;
   combo($('#c-cust'), { list: () => customers, value: o.customer_id, placeholder: 'Type customer name…', addWord: 'customer', onAdd: newCustomer,
-    onPick: id => { o.customer_id = id; const f = document.querySelector('#o-lines .c input'); if (f && !O.lines[0].item_id) f.focus(); } });
+    onPick: id => { o.customer_id = id; showCopy(); const f = document.querySelector('#o-lines .c input'); if (f && !O.lines[0].item_id) f.focus(); } });
+  const showCopy = () => safe(async () => {
+    const bar = $('#o-copy'); if (!bar || !o.customer_id) return;
+    const last = await lastOrderFor(o.customer_id);
+    if (!last) { bar.classList.add('hide'); return; }
+    bar.classList.remove('hide');
+    bar.innerHTML = `<button class="btn blue" id="o-copybtn">↺ Copy last order</button><span class="muted">#${last.id} · delivered ${ukDate(last.delivery_date)}</span>`;
+    $('#o-copybtn').onclick = () => safe(async () => {
+      const filled = O.lines.some(l => l.item_id);
+      if (filled && !confirm('Replace the items you have entered with the last order?')) return;
+      await copyOrder(last.id);
+    });
+  });
+  if (!o.id && o.customer_id) showCopy();
   drawLines();
   $('#o-prep').oninput = e => o.prep_date = e.target.value;
   $('#o-del').oninput = e => { o.delivery_date = e.target.value; if (o.prep_date > o.delivery_date) { o.prep_date = o.delivery_date; $('#o-prep').value = o.prep_date; } };
@@ -563,11 +601,14 @@ function drawLines(focusLast) {
           ${O.plan_on ? rpBox(r, `data-rj="${j}"`) : ''}
           <button class="link pksave ${(r.how || '').trim() && !isPreset(r.how) ? '' : 'hide'}" data-save="${j}" title="Save to packing options">save</button>
           <button class="link" data-x="${j}" aria-label="Remove packing line">✕</button></div>`).join('')}
-        <div class="pkf"><button class="link" data-addp>+ Add packing line</button><span class="muted" data-hint>${hint}</span></div>
+        <div class="pkf"><button class="link" data-addp>+ Add packing line</button><span class="muted" data-hint>${hint}</span>
+          <span class="pkl">${PLISTS.length ? `<select data-uselist><option value="">Use a saved list…</option>${PLISTS.map(p => `<option value="${p.id}">${esc(p.name)} (${p.rows.length})</option>`).join('')}</select>` : ''}
+          <button class="link ${l.packing.filter(r => (r.how || '').trim()).length >= 2 ? '' : 'hide'}" data-savelist>Save this list</button></span></div>
         ${PRESETS.length ? `<div class="pkchips">${PRESETS.map(p => `<button type="button" class="pkchip" data-preset="${esc(p.text)}">+ ${esc(p.text)}</button>`).join('')}</div>` : ''}`;
       const upHint = () => { const pl = l.packing.reduce((a, r) => a + (isNum(r.qty_planned) ? Number(r.qty_planned) : 0), 0); const h = pb.querySelector('[data-hint]'); if (h) h.textContent = isNum(l.qty_ordered) ? `${qf(pl)} of ${qf(l.qty_ordered)} ${U(l.unit)} planned` : ''; };
       pb.querySelectorAll('.pq').forEach(i => i.oninput = () => { l.packing[i.dataset.j].qty_planned = i.value.trim(); upHint(); });
-      pb.querySelectorAll('.ph').forEach(i => i.oninput = () => { l.packing[i.dataset.j].how = i.value; pb.querySelector(`[data-save="${i.dataset.j}"]`).classList.toggle('hide', !i.value.trim() || isPreset(i.value)); });
+      pb.querySelectorAll('.ph').forEach(i => i.oninput = () => { l.packing[i.dataset.j].how = i.value; pb.querySelector(`[data-save="${i.dataset.j}"]`).classList.toggle('hide', !i.value.trim() || isPreset(i.value));
+        pb.querySelector('[data-savelist]').classList.toggle('hide', l.packing.filter(r => (r.how || '').trim()).length < 2); });
       pb.querySelectorAll('[data-save]').forEach(b => b.onclick = () => safe(async () => {
         const t = (l.packing[b.dataset.save].how || '').trim(); if (!t) return;
         await q(sb.from('ord_packing_presets').insert({ text: t })); await loadPackWords(); toast('Saved to packing options'); drawLines();
@@ -580,10 +621,28 @@ function drawLines(focusLast) {
       pb.querySelectorAll('[data-x]').forEach(b => b.onclick = () => { l.packing.splice(+b.dataset.x, 1); drawPack(); });
       pb.querySelectorAll('.rpi[data-rj]').forEach(i => i.oninput = () => l.packing[i.dataset.rj].rp_price = i.value.trim());
       pb.querySelectorAll('.rps[data-rj]').forEach(i => i.onchange = () => l.packing[i.dataset.rj].rp_per = i.value);
+      pb.querySelector('[data-uselist]')?.addEventListener('change', e => {
+        const pl = PLISTS.find(p => String(p.id) === e.target.value); if (!pl) return;
+        const keep = l.packing.filter(r => (r.how || '').trim() || isNum(r.qty_planned));
+        const have = new Set(keep.map(r => (r.how || '').trim().toLowerCase()));
+        l.packing = [...keep, ...pl.rows.filter(r => !have.has((r.how || '').trim().toLowerCase())).map(r => ({ qty_planned: r.qty != null ? qf(r.qty) : '', how: r.how }))];
+        if (O.plan_on) drawLines(); else drawPack();
+        toast(`Added “${pl.name}” – check the numbers`);
+      });
+      pb.querySelector('[data-savelist]')?.addEventListener('click', () => safe(async () => {
+        const name = (prompt('Name for this packing list (e.g. "K Market beef")', item(l.item_id)?.name || '') || '').trim(); if (!name) return;
+        const rows = l.packing.filter(r => (r.how || '').trim()).map(r => ({ how: r.how.trim(), qty: isNum(r.qty_planned) ? Number(r.qty_planned) : null }));
+        const ex = PLISTS.find(p => p.name.trim().toLowerCase() === name.toLowerCase());
+        if (ex) { if (!confirm(`Replace the saved list “${ex.name}”?`)) return; await q(sb.from('ord_packing_lists').update({ rows }).eq('id', ex.id)); }
+        else await q(sb.from('ord_packing_lists').insert({ name, rows }));
+        await loadPLists(); toast(`Saved list “${name}”`); drawPack();
+      }));
       pb.querySelector('[data-addp]').onclick = () => { l.packing.push({ qty_planned: '', how: '' }); drawPack(); pb.querySelectorAll('.pq')[l.packing.length - 1].focus(); };
     };
     drawPack();
-    const c = combo(row.querySelector('.c'), { list: () => items, value: l.item_id, placeholder: 'Type item name…', addWord: 'item', onPick: id => { l.item_id = id; row.querySelector('.q').focus(); } });
+    const c = combo(row.querySelector('.c'), { list: () => items, value: l.item_id, placeholder: 'Type item name…', addWord: 'item', onPick: id => { l.item_id = id;
+      if (!l.unit && LAST_UNIT[id]) { l.unit = LAST_UNIT[id]; row.querySelectorAll('.tog button').forEach(x => x.classList.toggle('on', x.dataset.u === l.unit)); row.querySelector('.tog').classList.remove('need'); }
+      row.querySelector('.q').focus(); } });
     row.querySelector('.q').oninput = e => { l.qty_ordered = e.target.value.trim(); if (l.packing?.length) { const h = pb.querySelector('[data-hint]'); if (h) h.textContent = isNum(l.qty_ordered) ? `${qf(l.packing.reduce((a, r) => a + (isNum(r.qty_planned) ? Number(r.qty_planned) : 0), 0))} of ${qf(l.qty_ordered)} ${U(l.unit)} planned` : ''; } };
     row.querySelectorAll('.tog button').forEach(b => b.onclick = () => {
       l.unit = b.dataset.u; row.querySelectorAll('.tog button').forEach(x => x.classList.toggle('on', x === b)); row.querySelector('.tog').classList.remove('need');
@@ -1266,7 +1325,7 @@ async function homeScreen() {
 async function setupScreen() {
   await loadLists();
   await xeroStatus();
-  await loadPresets();
+  await loadPresets(); await loadPLists();
   GK = await q(sb.rpc('ord_secret_info', { p_key: 'gemini_api_key' })).catch(() => null);
   const lastRow = (await q(sb.from('ord_settings').select('value').eq('key', 'last_xero_sync')))[0];
   const last = lastRow ? JSON.parse(lastRow.value) : null;
@@ -1284,6 +1343,9 @@ async function setupScreen() {
       <p class="muted">Lets processing photograph the subtotal labels instead of typing the figures. The key is stored privately – nobody can see it again after saving.</p>
       <p id="s-gk">${GK?.set ? `<b class="ok-t">✓ Key saved</b> <span class="muted">${new Date(GK.set_at).toLocaleDateString('en-GB')} by ${esc(uname(GK.set_by))}</span>` : '<b>No key saved yet</b>'}</p>
       <div class="row"><input id="s-gkin" type="password" autocomplete="off" placeholder="Paste the Gemini API key"><button class="btn blue" style="flex:none" id="s-gksave">Save key</button>${GK?.set ? '<button class="btn" style="flex:none" id="s-gkdel">Remove</button>' : ''}</div></div>
+    <div class="card"><h2>Saved packing lists</h2>
+      <p class="muted">Whole packing lists you can pick in one go when entering an order. Save one from an order with “Save this list”.</p>
+      ${PLISTS.length ? `<table><tbody>${PLISTS.map(p => `<tr><td><b>${esc(p.name)}</b><div class="muted" style="font-size:13px">${p.rows.map(r => (r.qty != null ? qf(r.qty) + ' × ' : '') + esc(r.how)).join(', ')}</div></td><td style="text-align:right"><button class="link" data-pldel="${p.id}">Remove</button></td></tr>`).join('')}</tbody></table>` : '<p class="muted">None saved yet</p>'}</div>
     <div class="card"><h2>Packing options</h2>
       <p class="muted">Saved ways of packing. They show as quick buttons under the packing list when creating an order.</p>
       <div class="pkchips" id="s-pp">${PRESETS.map(p => `<span class="pkchip">${esc(p.text)} <button class="link" data-pp="${p.id}" aria-label="Remove">✕</button></span>`).join('') || '<span class="muted">None saved yet</span>'}</div>
@@ -1309,6 +1371,7 @@ async function setupScreen() {
   const addPP = () => safe(async () => { const t = $('#s-ppin').value.trim(); if (!t) throw new Error('Type the packing option first'); if (isPreset(t)) throw new Error('Already saved');
     await q(sb.from('ord_packing_presets').insert({ text: t })); toast('Saved'); setupScreen(); });
   $('#s-ppadd').onclick = addPP;
+  document.querySelectorAll('[data-pldel]').forEach(b => b.onclick = () => safe(async () => { if (!confirm('Remove this saved list?')) return; await q(sb.from('ord_packing_lists').delete().eq('id', b.dataset.pldel)); setupScreen(); }));
   $('#s-gksave').onclick = () => safe(async () => { const v = $('#s-gkin').value.trim(); if (v.length < 20) throw new Error('Paste the whole key first');
     await q(sb.rpc('ord_set_secret', { p_key: 'gemini_api_key', p_value: v })); toast('Key saved'); setupScreen(); });
   if ($('#s-gkdel')) $('#s-gkdel').onclick = () => safe(async () => { if (!confirm('Remove the Gemini key? Photo labels will stop working.')) return;
