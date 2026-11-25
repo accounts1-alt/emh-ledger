@@ -146,9 +146,9 @@ async function sync(who: string) {
     contacts.push(...c);
     if (c.length < 500) break;
   }
-  // Xero only marks a contact as a customer after its first sales invoice, so a brand-new contact is neither.
-  // Bring in everything except suppliers that have never been invoiced.
-  const xc = contacts.filter(c => c.ContactStatus === 'ACTIVE' && (c.IsCustomer === true || c.IsSupplier !== true));
+  // Only contacts Xero marks as customers (they have had a sales invoice). A brand-new customer with no invoice yet
+  // is added in the app with "+ New customer" (same name as in Xero) and links up on its first invoice.
+  const xc = contacts.filter(c => c.ContactStatus === 'ACTIVE' && c.IsCustomer === true);
   const { data: appC } = await db.from('ord_customers').select('*');
   const cById = new Map((appC ?? []).filter(c => c.xero_contact_id).map(c => [c.xero_contact_id, c]));
   const cUnlinked = new Map((appC ?? []).filter(c => !c.xero_contact_id && !c.is_test).map(c => [norm(c.name), c]));
@@ -168,7 +168,9 @@ async function sync(who: string) {
   }
   if (newC.length) { const { error } = await db.from('ord_customers').insert(newC); if (error) throw new Fail(`Saving customers: ${error.message}`); res.customers_added = newC.length; }
   // gone from Xero: archive if used on an order, otherwise remove (app-only new customers are kept until their first invoice)
-  const goneC = (appC ?? []).filter(c => !c.is_test && c.xero_contact_id && !seenC.has(c.xero_contact_id));
+  // (a customer added by hand in the app stays while its Xero contact exists, even before its first invoice)
+  const activeX = new Set(contacts.filter(c => c.ContactStatus === 'ACTIVE').map(c => c.ContactID));
+  const goneC = (appC ?? []).filter(c => !c.is_test && c.xero_contact_id && !seenC.has(c.xero_contact_id) && !(activeX.has(c.xero_contact_id) && c.created_by !== 'xero sync'));
   const usedC = new Set<number>();
   if (goneC.length) ((await db.rpc('ord_used_customers', { ids: goneC.map(c => c.id) })).data ?? []).forEach((id: number) => usedC.add(Number(id)));
   const archC = goneC.filter(c => usedC.has(c.id) && !c.orphaned).map(c => c.id);
