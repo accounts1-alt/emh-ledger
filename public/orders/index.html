@@ -470,6 +470,10 @@
   .ipanew { min-height: 300px; } .ipempty { background: #fff; border-radius: 22px; padding: 80px 20px; text-align: center; color: #9aa1bd; font-weight: 800; font-size: 18px; border: 2px dashed #dde2f0; }
   .mbox.ipane { max-width: none !important; width: 100%; box-shadow: 0 1px 2px rgba(29,42,91,.05), 0 4px 16px rgba(29,42,91,.04); }
   .isum { margin-left: auto; font-weight: 700; color: #6b7497; } .isum b { color: #1d2a5b; font-size: 18px; font-weight: 900; }
+  .rchart { padding: 18px 22px; } .hbar { display: grid; grid-template-columns: minmax(140px, 260px) minmax(0, 1fr) 120px; gap: 14px; align-items: center; padding: 5px 0; font-size: 15px; }
+  .hbar .hl { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .hbar .ht .bar { display: block; height: 14px; border-radius: 99px; background: #ff6b5b; min-width: 4px; } .hbar .hv { text-align: right; font-weight: 900; }
+  .rtable { padding: 6px 0; } .otab.rt { table-layout: auto; min-width: 0; } .otab.rt th, .otab.rt td { width: auto !important; } .otab.rt td.b { font-weight: 900; color: #1d2a5b; }
+  .otab .num { text-align: right; } .otab tr.tfoot td { border-top: 2px solid #e6e9f4; font-weight: 900; background: #fafbff; }
   .hide { display: none !important; }
 </style>
 </head>
@@ -1825,6 +1829,7 @@ async function ordersScreen() {
 /* ================= REPORTING ================= */
 const R = { range: 'month', from: '', to: '', cust: null, view: 'cust' };
 async function reportsScreen() {
+  if (R.view === 'resale' && role !== 'admin') R.view = 'cust';
   let [a, b] = R.range === 'custom' ? [R.from, R.to] : rangeOf(R.range);
   if (!a) { a = monthStart(0); b = addDays(monthStart(1), -1); }
   let qy = sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').gte('delivery_date', a).lte('delivery_date', b).order('delivery_date');
@@ -1837,45 +1842,68 @@ async function reportsScreen() {
   const oById = new Map(orders.map(o => [o.id, o]));
   const inv = il.filter(x => oById.get(x.order_id)?.status === 'invoiced');
   const total = inv.reduce((s, x) => s + lineAmt(x), 0);
-  const kgSent = orders.filter(o => o.status !== 'new').reduce((s, o) => s + o.lines.reduce((t, l) => t + (l.sent_unit === 'kg' || l.unit === 'kg' ? Number(l.qty_net) || 0 : 0), 0), 0);
+  const kgSent = orders.filter(o => o.status !== 'new').reduce((s, o) => s + o.lines.reduce((t, l) => t + (l.sent_unit === 'kg' ? Number(l.qty_net) || 0 : 0), 0), 0);
   const birds = orders.reduce((s, o) => s + (Number(o.birds) || 0), 0);
   const notInv = orders.filter(o => o.status !== 'invoiced').length;
-  const add = (m, k, amt, kg) => { const r = m.get(k) || { k, amt: 0, kg: 0, n: 0 }; r.amt += amt; r.kg += kg; r.n++; m.set(k, r); };
-  const rows = new Map();
-  if (R.view === 'cust') inv.forEach(x => add(rows, cust(oById.get(x.order_id).customer_id)?.name || '?', lineAmt(x), x.unit === 'kg' ? Number(x.qty) || 0 : 0));
-  if (R.view === 'item') inv.forEach(x => add(rows, x.description || item(x.item_id)?.name || '?', lineAmt(x), x.unit === 'kg' ? Number(x.qty) || 0 : 0));
-  if (R.view === 'week') { inv.forEach(x => { const dd = oById.get(x.order_id).delivery_date, w = new Date(dd + 'T12:00:00'); w.setDate(w.getDate() - ((w.getDay() + 6) % 7));
-    add(rows, 'w' + w.toLocaleDateString('en-CA'), lineAmt(x), x.unit === 'kg' ? Number(x.qty) || 0 : 0); }); }
-  if (R.view === 'resale') orders.forEach(o => o.lines.forEach(l => { if (rs[l.id] != null) add(rows, cust(o.customer_id)?.name || '?', Number(rs[l.id]), Number(l.qty_net) || 0); }));
-  let list = [...rows.values()];
-  if (R.view === 'week') list.sort((x, y) => x.k.localeCompare(y.k)); else list.sort((x, y) => y.amt - x.amt);
-  const label = k => R.view === 'week' ? 'Week of ' + ukDate(k.slice(1)) : k;
-  const max = Math.max(1, ...list.map(r => r.amt));
+  const n0 = v => v ? Math.round(v).toLocaleString('en-GB') : '—', n1 = v => v ? (Math.round(v * 10) / 10).toLocaleString('en-GB') : '—';
+  const wkOf = d => { const w = new Date(d + 'T12:00:00'); w.setDate(w.getDate() - ((w.getDay() + 6) % 7)); return w.toLocaleDateString('en-CA'); };
+  // build rows + columns for the chosen report
+  const M = new Map(), get = k => { if (!M.has(k)) M.set(k, { k, orders: new Set(), kg: 0, packs: 0, amt: 0, birds: 0, bkg: 0, cpk: 0, fkg: 0, fpk: 0 }); return M.get(k); };
+  let cols, chartOf, title, sortBy = 'amt';
+  if (R.view === 'cust' || R.view === 'item') {
+    inv.forEach(x => { const o = oById.get(x.order_id), r = get(R.view === 'cust' ? cust(o.customer_id)?.name || '?' : x.description || item(x.item_id)?.name || '?');
+      r.orders.add(o.id); r.amt += lineAmt(x); if (x.unit === 'kg') r.kg += Number(x.qty) || 0; else r.packs += Number(x.qty) || 0; });
+    title = R.view === 'cust' ? 'Customer' : 'Item';
+    cols = [[title, r => `<b>${esc(r.k)}</b>`], ['Orders', r => r.orders.size, 'num'], ['Kg', r => n1(r.kg), 'num'], ['Packets / units', r => n0(r.packs), 'num'],
+      ...(R.view === 'item' ? [['Avg £/kg', r => r.kg && !r.packs ? money(r.amt / r.kg) : '—', 'num']] : []), ['Invoiced', r => money(r.amt), 'num b'], ['Share', r => total ? Math.round(r.amt / total * 100) + '%' : '', 'num muted']];
+    chartOf = r => r.amt;
+  } else if (R.view === 'resale') {
+    orders.forEach(o => o.lines.forEach(l => { if (rs[l.id] == null) return; const r = get(cust(o.customer_id)?.name || '?'); r.orders.add(o.id); r.amt += Number(rs[l.id]); r.kg += l.sent_unit === 'kg' ? Number(l.qty_net) || 0 : 0; }));
+    title = 'Customer';
+    cols = [['Customer', r => `<b>${esc(r.k)}</b>`], ['Orders', r => r.orders.size, 'num'], ['Kg', r => n1(r.kg), 'num'], ['Resale', r => money(r.amt), 'num b']];
+    chartOf = r => r.amt;
+  } else {   // chickens & packing, per week
+    orders.filter(o => o.status !== 'new').forEach(o => { const r = get(wkOf(o.delivery_date)); r.orders.add(o.id); r.birds += Number(o.birds) || 0; r.bkg += Number(o.bird_kg) || 0; r.fkg += Number(o.beef_kg) || 0;
+      o.lines.forEach(l => { const L = listOf(l.item_id), pk = Number(l.packs_made) || 0; if (L === 'chicken') r.cpk += pk; if (L === 'beef') r.fpk += pk; }); });
+    title = 'Week'; sortBy = 'k';
+    cols = [['Week of', r => `<b>${ukDate(r.k)}</b>`], ['Orders', r => r.orders.size, 'num'], ['Chickens', r => n0(r.birds), 'num b'], ['Chickens kg', r => n1(r.bkg), 'num'],
+      ['Chicken packs', r => n0(r.cpk), 'num'], ['Beef kg', r => n1(r.fkg), 'num'], ['Beef packs', r => n0(r.fpk), 'num']];
+    chartOf = r => r.birds;
+  }
+  const rows = [...M.values()].sort((x, y) => sortBy === 'k' ? x.k.localeCompare(y.k) : y.amt - x.amt);
+  const top = sortBy === 'k' ? rows : rows.slice(0, 12), mx = Math.max(1, ...top.map(chartOf));
+  const fmtC = R.view === 'chick' ? v => n0(v) : v => money(v);
+  const chartHtml = sortBy === 'k'
+    ? `<div class="cbars" style="height:190px">${top.map(r => `<div class="cb on"><span class="cv">${chartOf(r) ? n0(chartOf(r)) : ''}</span><span class="cbar" style="height:${Math.max(chartOf(r) ? 5 : 2, chartOf(r) / mx * 100)}%"></span><span class="cl">${ukDate(r.k).replace(/^\w+ /, '')}</span></div>`).join('')}</div>`
+    : top.map(r => `<div class="hbar"><span class="hl">${esc(r.k)}</span><span class="ht"><span class="bar" style="width:${Math.max(1, chartOf(r) / mx * 100)}%"></span></span><span class="hv">${fmtC(chartOf(r))}</span></div>`).join('');
+  const foot = rows.length > 1 && R.view !== 'chick' ? `<tr class="tfoot"><td><b>Total</b></td>${cols.slice(1).map(([h, , c]) => `<td class="${c || ''}">${h === 'Orders' ? new Set(rows.flatMap(r => [...r.orders])).size : h === 'Kg' ? n1(rows.reduce((s, r) => s + r.kg, 0)) : h === 'Packets / units' ? n0(rows.reduce((s, r) => s + r.packs, 0)) : h === 'Invoiced' || h === 'Resale' ? money(rows.reduce((s, r) => s + r.amt, 0)) : ''}</td>`).join('')}</tr>`
+    : rows.length > 1 ? `<tr class="tfoot"><td><b>Total</b></td>${cols.slice(1).map(([h, , c]) => { const f = { Orders: r => r.orders.size, Chickens: r => r.birds, 'Chickens kg': r => r.bkg, 'Chicken packs': r => r.cpk, 'Beef kg': r => r.fkg, 'Beef packs': r => r.fpk }[h]; const v = rows.reduce((s, r) => s + f(r), 0); return `<td class="${c || ''}">${/kg/.test(h) ? n1(v) : n0(v)}</td>`; }).join('')}</tr>` : '';
   const custs = customers.filter(c => !c.orphaned).sort((x, y) => x.name.localeCompare(y.name));
   const chip = (k, t, on, attr) => `<button class="chip ${on ? 'on' : ''}" ${attr}="${k}">${t}</button>`;
-  const views = [['cust', 'By customer'], ['item', 'By item'], ['week', 'By week']].concat(role === 'admin' ? [['resale', 'Resale']] : []);
+  const views = [['cust', 'Sales by customer'], ['item', 'Sales by item'], ['chick', 'Chickens & packing']].concat(role === 'admin' ? [['resale', 'Resale']] : []);
   $('#view').innerHTML = `
     <div class="fbar">${[['week', 'This week'], ['lweek', 'Last week'], ['month', 'This month'], ['lmonth', 'Last month'], ['custom', '📅 Pick dates']].map(([k, t]) => chip(k, t, R.range === k, 'data-r')).join('')}
+      ${R.range === 'custom' ? `<input type="date" id="r-a" class="fsel" value="${esc(a)}"> to <input type="date" id="r-b" class="fsel" value="${esc(b)}">` : ''}
       <select id="r-cust" class="fsel">${['<option value="">All customers</option>', ...custs.map(c => `<option value="${c.id}" ${R.cust == c.id ? 'selected' : ''}>${esc(c.name)}</option>`)].join('')}</select>
       <button class="btn grow" id="r-dl">⬇ Download</button></div>
-    ${R.range === 'custom' ? `<div class="fbar" style="margin-top:-8px"><input type="date" id="r-a" class="fsel" value="${esc(a)}"> to <input type="date" id="r-b" class="fsel" value="${esc(b)}"></div>` : ''}
-    <div class="muted" style="margin:-6px 0 12px">${ukDate(a)} – ${ukDate(b)} · by delivery date</div>
-    <div class="kpis"><div class="kpi"><b>${money(total)}</b><span>Invoiced</span></div><div class="kpi"><b>${orders.length}</b><span>Orders${notInv ? ` · ${notInv} not invoiced yet` : ''}</span></div>
+    <div class="muted" style="margin:-6px 0 12px">${ukDate(a)} – ${ukDate(b)} · by delivery date${notInv ? ` · ${notInv} order${notInv === 1 ? '' : 's'} not invoiced yet (not in the £)` : ''}</div>
+    <div class="kpis"><div class="kpi"><b>${money(total)}</b><span>Invoiced</span></div><div class="kpi"><b>${orders.length}</b><span>Orders</span></div>
       <div class="kpi"><b>${birds.toLocaleString('en-GB')}</b><span>Chickens</span></div><div class="kpi"><b>${Math.round(kgSent).toLocaleString('en-GB')} kg</b><span>Sent</span></div></div>
     <div class="fbar">${views.map(([k, t]) => chip(k, t, R.view === k, 'data-v')).join('')}</div>
-    <div class="card">${list.length ? `<div class="rbar rhead"><span>${R.view === 'item' ? 'Item' : R.view === 'week' ? 'Week' : 'Customer'}</span><span></span><span class="k">kg</span><span class="v">${R.view === 'resale' ? 'Resale' : 'Invoiced'}</span></div>`
-      + list.map(r => `<div class="rbar"><span><b>${esc(label(r.k))}</b></span><span><span class="bar" style="width:${Math.max(1, r.amt / max * 100)}%"></span></span><span class="k">${r.kg ? Math.round(r.kg).toLocaleString('en-GB') : '—'}</span><span class="v">${money(r.amt)}</span></div>`).join('')
-      : `<div class="empty">Nothing ${R.view === 'resale' ? 'with resale' : 'invoiced'} in these dates</div>`}</div>`;
+    ${rows.length ? `<div class="card rchart"><div class="sech">${R.view === 'chick' ? 'Chickens per week' : R.view === 'resale' ? 'Resale' : 'Top ' + Math.min(12, rows.length) + ' by £'}</div>${chartHtml}</div>
+      <div class="card rtable"><div class="otw"><table class="otab rt"><thead><tr>${cols.map(([h, , c]) => `<th class="${(c || '').replace(' b', '').replace(' muted', '')}">${h}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r => `<tr>${cols.map(([, f, c]) => `<td class="${c || ''}">${f(r)}</td>`).join('')}</tr>`).join('')}${foot}</tbody></table></div></div>`
+      : `<div class="card"><div class="empty">Nothing ${R.view === 'resale' ? 'with resale' : R.view === 'chick' ? 'packed' : 'invoiced'} in these dates</div></div>`}`;
   document.querySelectorAll('[data-r]').forEach(x => x.onclick = () => { R.range = x.dataset.r; if (R.range === 'custom' && !R.from) { R.from = a; R.to = b; } reportsScreen(); });
   document.querySelectorAll('[data-v]').forEach(x => x.onclick = () => { R.view = x.dataset.v; reportsScreen(); });
   $('#r-cust').onchange = e => { R.cust = e.target.value ? Number(e.target.value) : null; reportsScreen(); };
   if ($('#r-a')) { $('#r-a').onchange = e => { R.from = e.target.value; reportsScreen(); }; $('#r-b').onchange = e => { R.to = e.target.value; reportsScreen(); }; }
   $('#r-dl').onclick = () => {
-    const csv = [['Order', 'Delivery', 'Customer', 'Status', 'Invoice', 'Line', 'Qty', 'Per', 'Price', 'Amount'].join(',')];
+    const strip = h => String(h).replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
     const cell = v => /[",\n]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? '');
-    il.sort((x, y) => x.order_id - y.order_id || x.position - y.position).forEach(x => { const o = oById.get(x.order_id);
-      csv.push([o.id, o.delivery_date, cust(o.customer_id)?.name, ST[o.status], o.invoice_number, x.description || item(x.item_id)?.name, x.qty, x.unit, x.price, lineAmt(x).toFixed(2)].map(cell).join(',')); });
-    const el = document.createElement('a'); el.href = URL.createObjectURL(new Blob([csv.join('\n')], { type: 'text/csv' })); el.download = `em-h-report-${a}-to-${b}.csv`; el.click();
+    const csv = [cols.map(([h]) => cell(h)).join(','), ...rows.map(r => cols.map(([, f]) => cell(strip(f(r)))).join(','))];
+    const el = document.createElement('a'); el.href = URL.createObjectURL(new Blob([csv.join('\n')], { type: 'text/csv' }));
+    el.download = `em-h-${views.find(v => v[0] === R.view)[1].toLowerCase().replace(/[^a-z]+/g, '-')}-${a}-to-${b}.csv`; el.click();
   };
 }
 
