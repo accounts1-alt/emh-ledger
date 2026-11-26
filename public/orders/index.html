@@ -1053,7 +1053,7 @@ async function procScreen() {
       <span class="fsep"></span>${KINDS.map(([k, t]) => `<button class="chip ${P.kinds[k] ? 'on' : ''}" data-pk="${k}">${t}</button>`).join('')}
       <button class="swt grow ${P.showDone ? 'on' : ''}" id="p-sd">Show done <i></i></button>
       <button class="btn" id="p-done">Earlier done →</button>
-      ${role === 'admin' ? '<button class="btn" id="p-addp">+ Prep task</button><button class="btn" id="p-adds">+ Shop order</button>' : ''}</div>` +
+</div>` +
     showKeys.map(k => { const G = groups[k]; return `<section class="pday ${k === 'late' ? 'late' : ''}">
       <div class="pdh"><span class="pdn">${dayName(k)}</span><span class="pds">${daySub(k)}</span></div>
       ${P.kinds.orders ? (() => { const op = G.orders.filter(o => !isDoneO(o)), dn = G.orders.filter(isDoneO);
@@ -1497,7 +1497,7 @@ async function xeroStatus() { try { XERO = await xeroCall({ action: 'status' });
 const I = { tab: 'todo', search: '', sel: null };
 let PANE = null, PANE_KEEP = false;   // when set, the next modal() opens in this panel instead of a pop-up
 async function invScreen() {
-  if (I.tab === 'waiting' && role !== 'admin') I.tab = 'todo';
+  if (I.tab === 'waiting') I.tab = 'todo';
   await xeroStatus();
   const status = { todo: 'fulfilled', missing: 'fulfilled', done: 'invoiced', waiting: 'new' }[I.tab];
   let qy = sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('status', status);
@@ -1536,11 +1536,10 @@ async function invScreen() {
       <button class="chip ${I.tab === 'todo' ? 'on' : ''}" data-t="todo">To invoice <span class="n">${nTodo}</span></button>
       <button class="chip warn ${I.tab === 'missing' ? 'on' : ''}" data-t="missing">Prices missing${nMiss != null ? ` <span class="n">${nMiss}</span>` : ''}</button>
       <button class="chip ${I.tab === 'done' ? 'on' : ''}" data-t="done">Invoiced</button>
-      ${role === 'admin' ? `<button class="chip ${I.tab === 'waiting' ? 'on' : ''}" data-t="waiting">Not packed yet <span class="n">${nWait}</span></button>` : ''}
       ${status === 'fulfilled' && waitSum ? `<span class="isum">Ready to invoice: <b>${money(waitSum)}</b></span>` : ''}</div>
     <div class="ilay ${I.tab === 'waiting' ? 'nopane' : ''}">
-      <div class="ilist card">${itasks.length || role === 'admin' ? `<div class="itasks"><div class="dch"><span>Invoicing tasks</span>${role === 'admin' ? '<button class="link" id="i-addt">+ Add</button>' : `<b>${itasks.length}</b>`}</div>
-          ${itasks.map(t => `<div class="otask"><button class="tick" data-it="${t.id}" aria-label="Tick"><span class="cbx"></span></button><span class="ttx" ${role === 'admin' ? `data-ite="${t.id}"` : ''}>${esc(t.text)}${!t.seen_at ? ' <span class="tg tg-new">new</span>' : ''}<i class="${t.due_date < today ? 'late-t' : ''}">${t.due_date === today ? 'Today' : ukDate(t.due_date)}</i></span></div>`).join('') || '<div class="pempty">Nothing open</div>'}</div>` : ''}
+      <div class="ilist card">${itasks.length ? `<div class="itasks"><div class="dch"><span>Invoicing tasks</span><b>${itasks.length}</b></div>
+          ${itasks.map(t => `<div class="otask"><button class="tick" data-it="${t.id}" aria-label="Tick"><span class="cbx"></span></button><span class="ttx">${esc(t.text)}${!t.seen_at ? ' <span class="tg tg-new">new</span>' : ''}<i class="${t.due_date < today ? 'late-t' : ''}">${t.due_date === today ? 'Today' : ukDate(t.due_date)}</i></span></div>`).join('') || '<div class="pempty">Nothing open</div>'}</div>` : ''}
         <input class="fsearch" id="i-search" placeholder="🔍 Customer" value="${esc(I.search)}">
         ${groups.length ? groups.map(g => `<div class="igrp"><div class="sech">${I.tab === 'done' ? 'Invoiced ' : I.tab === 'waiting' ? 'Prepare ' : 'Delivered '}${gname(g.k)}</div>${g.list.map(card).join('')}</div>`).join('')
           : `<div class="empty" style="padding:30px 0">${I.tab === 'todo' ? 'Nothing to invoice 👍' : I.tab === 'missing' ? 'No prices missing 👍' : 'Nothing here'}</div>`}</div>
