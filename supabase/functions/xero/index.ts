@@ -106,15 +106,15 @@ async function send(orderId: number, who: string) {
   // the same Xero item with a different description is its own line. Packing lines with no price are not charged.
   let LineItems: Record<string, unknown>[];
   if (ils?.length) {
-    const groups = new Map<string, { code: string; name: string; tax: string; acct: string; qty: number; total: number; units: Set<string> }>();
+    const groups = new Map<string, { code: string; name: string; tax: string; acct: string; qty: number; total: number; units: Set<string>; disc: number }>();
     for (const x of ils) {
       const it = item.get(x.item_id);
       const packing = it?.list === 'beef' || it?.list === 'chicken';
       if (packing && (x.price == null || !it?.xero_code)) continue;   // packing: optional – no price or not linked = left off the Xero invoice
       if (x.price == null || x.qty == null) throw new Fail(`${x.description}: fill in the ${x.qty == null ? 'quantity' : 'price'}`);
       if (!it?.xero_code) throw new Fail(`“${it?.name ?? x.description}” is not linked to a Xero item yet – link it in Xero links`);
-      const desc = (it.xero_desc || it.xero_name || it.name || '').trim(), key = it.xero_code + '|' + desc.toLowerCase();
-      const g = groups.get(key) ?? { code: it.xero_code, name: desc, tax: it.xero_tax_type || taxType, acct: it.xero_account || SALES_ACCOUNT, qty: 0, total: 0, units: new Set<string>() };
+      const desc = (it.xero_desc || it.xero_name || it.name || '').trim(), disc = Number(x.discount) || 0, key = it.xero_code + '|' + desc.toLowerCase() + '|' + disc;
+      const g = groups.get(key) ?? { code: it.xero_code, name: desc, tax: it.xero_tax_type || taxType, acct: it.xero_account || SALES_ACCOUNT, qty: 0, total: 0, units: new Set<string>(), disc };
       g.total += Math.round(Number(x.qty) * Number(x.price) * 100) / 100;
       g.qty += Number(x.qty); g.units.add(x.unit || 'kg');
       groups.set(key, g);
@@ -124,8 +124,11 @@ async function send(orderId: number, who: string) {
       // one unit on every line (all kg, or all units/packets): Quantity = how many, UnitAmount = price each; mixed units: 1 × total
       const total = Math.round(g.total * 100) / 100, qty = Math.round(g.qty * 1000) / 1000;
       const one = g.units.size === 1 && qty > 0, u = [...g.units][0];
-      return { ItemCode: g.code, Description: `${g.name}${one && u === 'kg' ? ` – ${qty} kg` : ''}`, Quantity: one ? qty : 1, UnitAmount: one ? Math.round(total / qty * 10000) / 10000 : total,
+      // total is before discount; a discount goes to Xero as the line's Discount % (Xero shows it on the invoice)
+      const li: Record<string, unknown> = { ItemCode: g.code, Description: `${g.name}${one && u === 'kg' ? ` – ${qty} kg` : ''}`, Quantity: one ? qty : 1, UnitAmount: one ? Math.round(total / qty * 10000) / 10000 : total,
         AccountCode: g.acct, TaxType: g.tax };
+      if (g.disc > 0) li.DiscountRate = Math.round(g.disc * 100) / 100;
+      return li;
     });
   } else LineItems = lines.map(l => {
     const p = price.get(l.id), it = item.get(l.item_id)!;

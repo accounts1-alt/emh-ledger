@@ -507,6 +507,14 @@
   .invtab tr.nc td:first-child b { color: #6b7497; font-weight: 700; } .invtab tr.nc input.price::placeholder { color: #c0c6db; }
   .lkr4 { grid-template-columns: 24px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr); } .lkd { padding: 6px 10px; font-size: 14px; }
   .xpr3 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr); gap: 10px; align-items: center; margin: 6px 0; }
+  .invtab input.din { width: 64px; } .invadd { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; } .invadd > div { flex: 1 1 320px; }
+  .dall { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: #6b7497; margin: 0; white-space: nowrap; } .dall input { width: 70px !important; text-align: right; }
+  .xpbox .xps { background: #f7f8fd; border-radius: 16px; padding: 14px 16px; margin-bottom: 12px; } .xpbox .xps .sech { margin-bottom: 8px; }
+  .xpcr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 16px; }
+  .xpl td { vertical-align: middle; } .xpl tr.need td:first-child { box-shadow: inset 3px 0 0 #e5484d; padding-left: 10px; } .xpd { padding: 7px 10px; font-size: 14px; } .xpd:disabled { background: #f2f4fb; }
+  .link.sm { font-size: 14px; } .xpwhy { margin-left: auto; margin-right: 10px; color: #e5484d; font-weight: 800; font-size: 14px; }
+  .tdone { margin-top: 10px; border-top: 1px dashed #e6e9f4; padding-top: 8px; } .tdone summary { cursor: pointer; font-weight: 800; font-size: 13px; color: #6b7497; list-style: none; } .tdone summary::-webkit-details-marker { display: none; }
+  .tdone summary::before { content: '▸ '; } .tdone[open] summary::before { content: '▾ '; } .otask.done .ttx { color: #6b7497; cursor: default; } .otask .ok { color: #14a073; font-weight: 900; width: 22px; text-align: center; }
   .hide { display: none !important; }
 </style>
 </head>
@@ -641,11 +649,11 @@ const tog = (val, attrs) => `<span class="tog ${val ? '' : 'need'}">${['kg', 'un
 /* ================= login & navigation ================= */
 const TABS = {
   admin: [['dash', 'Dashboard'], ['orders', 'Ordering'], ['proc', 'Processing'], ['inv', 'Invoicing'], ['reports', 'Reporting'], ['setup', 'Settings']],
-  processing: [['dash', 'Dashboard'], ['proc', 'Processing']],
-  invoicing: [['dash', 'Dashboard'], ['inv', 'Invoicing'], ['reports', 'Reporting'], ['setup', 'Settings']],
+  processing: [['proc', 'Processing']],
+  invoicing: [['inv', 'Invoicing']],
 };
 const OLD = { home: 'dash', links: 'setup/links', staff: 'setup/staff' };
-const norm = t => OLD[t] || t;
+const norm = t => (OLD[t] || t) === 'dash' && role && role !== 'admin' ? TABS[role][0][0] : OLD[t] || t;
 const refresh = () => go(cur);
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
@@ -1487,8 +1495,9 @@ async function xeroStatus() { try { XERO = await xeroCall({ action: 'status' });
 
 /* ================= INVOICING ================= */
 const I = { tab: 'todo', search: '', sel: null };
-let PANE = null;   // when set, the next modal() opens in this panel instead of a pop-up
+let PANE = null, PANE_KEEP = false;   // when set, the next modal() opens in this panel instead of a pop-up
 async function invScreen() {
+  if (I.tab === 'waiting' && role !== 'admin') I.tab = 'todo';
   await xeroStatus();
   const status = { todo: 'fulfilled', missing: 'fulfilled', done: 'invoiced', waiting: 'new' }[I.tab];
   let qy = sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('status', status);
@@ -1527,7 +1536,7 @@ async function invScreen() {
       <button class="chip ${I.tab === 'todo' ? 'on' : ''}" data-t="todo">To invoice <span class="n">${nTodo}</span></button>
       <button class="chip warn ${I.tab === 'missing' ? 'on' : ''}" data-t="missing">Prices missing${nMiss != null ? ` <span class="n">${nMiss}</span>` : ''}</button>
       <button class="chip ${I.tab === 'done' ? 'on' : ''}" data-t="done">Invoiced</button>
-      <button class="chip ${I.tab === 'waiting' ? 'on' : ''}" data-t="waiting">Not packed yet <span class="n">${nWait}</span></button>
+      ${role === 'admin' ? `<button class="chip ${I.tab === 'waiting' ? 'on' : ''}" data-t="waiting">Not packed yet <span class="n">${nWait}</span></button>` : ''}
       ${status === 'fulfilled' && waitSum ? `<span class="isum">Ready to invoice: <b>${money(waitSum)}</b></span>` : ''}</div>
     <div class="ilay ${I.tab === 'waiting' ? 'nopane' : ''}">
       <div class="ilist card">${itasks.length || role === 'admin' ? `<div class="itasks"><div class="dch"><span>Invoicing tasks</span>${role === 'admin' ? '<button class="link" id="i-addt">+ Add</button>' : `<b>${itasks.length}</b>`}</div>
@@ -1579,8 +1588,8 @@ async function invOpen(o) {
   const GORD = { plain: 0, beef: 1, chicken: 2 };
   const sortLines = L => L.map((x, i) => [x, i]).sort((a, b) => GORD[grpOf(a[0])] - GORD[grpOf(b[0])] || a[1] - b[1]).map(a => a[0]);
   const needs = x => !isPack(x.item_id);   // plain lines must have qty + price; packing lines only if a price is given
-  let lines = sortLines(saved.length ? saved.map(x => ({ ...x, qty: x.qty != null ? qf(x.qty) : '', price: x.price != null ? qf(x.price) : '' })) : fromOrder());
-  const lt = x => isNum(x.qty) && isNum(x.price) ? Math.round(Number(x.qty) * Number(x.price) * 100) / 100 : null;
+  let lines = sortLines(saved.length ? saved.map(x => ({ ...x, qty: x.qty != null ? qf(x.qty) : '', price: x.price != null ? qf(x.price) : '', discount: x.discount != null ? qf(x.discount) : '' })) : fromOrder());
+  const lt = x => isNum(x.qty) && isNum(x.price) ? Math.round(Number(x.qty) * Number(x.price) * (1 - (isNum(x.discount) ? Number(x.discount) : 0) / 100) * 100) / 100 : null;
   const tot = () => lines.reduce((a, x) => a + (lt(x) ?? 0), 0);
   const { m, close } = modal(`<div class="inv">
     <div class="invh"><div><div class="invc">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivered ${ukDate(o.delivery_date)}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}</div></div>
@@ -1588,8 +1597,8 @@ async function invOpen(o) {
     ${steps(o.status === 'new' ? 'fulfilled' : o.status)}
     ${figs.length ? `<div class="invf"><span class="sech">Weights</span>${figs.map(([t, v]) => `<span class="w">${esc(t)}<b>${qf(v)} kg</b></span>`).join('')}</div>` : ''}
     <datalist id="inv-figs">${figs.map(([t, v]) => `<option value="${qf(v)}">${esc(t)}</option>`).join('')}</datalist>
-    <table class="invtab"><thead><tr><th>Item</th><th class="num">Qty</th><th>Unit</th><th class="num">Price</th><th class="num">Total</th><th></th></tr></thead>
-      <tbody data-il></tbody>${edit ? '<tfoot><tr><td colspan="6"><div data-addl></div></td></tr></tfoot>' : ''}</table>
+    <table class="invtab"><thead><tr><th>Item</th><th class="num">Qty</th><th>Unit</th><th class="num">Price</th><th class="num">Disc. %</th><th class="num">Total</th><th></th></tr></thead>
+      <tbody data-il></tbody>${edit ? `<tfoot><tr><td colspan="7"><div class="invadd"><div data-addl></div><label class="dall">Discount on every line <input data-dall inputmode="decimal" placeholder="0"> %</label></div></td></tr></tfoot>` : ''}</table>
     <div class="invfoot"><div class="invlinks">${edit ? `<button class="link" data-redo>↻ Start again from the order</button>
         ${toXero ? '<button class="link" data-manual>Mark invoiced without Xero</button>' : '<input placeholder="Invoice no. (optional)" data-inv style="width:200px">'}`
         : (o.xero_invoice_id ? '<span class="muted">Sent to Xero as a draft</span>' : '')}</div>
@@ -1608,15 +1617,16 @@ async function invOpen(o) {
     box.innerHTML = lines.map((x, i) => { const bad = needs(x) ? !isNum(x.qty) || !isNum(x.price) : isNum(x.price) && !isNum(x.qty), g = grpOf(x);
       let head = '';
       if (g !== lastG) { lastG = g; const sub = lines.filter(y => grpOf(y) === g).reduce((a, y) => a + (lt(y) ?? 0), 0);
-        head = `<tr class="igh"><td colspan="4">${GN[g]}${g !== 'plain' ? ' <i>price optional</i>' : ''}</td><td class="num">${sub ? money(sub) : ''}</td><td></td></tr>`; }
+        head = `<tr class="igh"><td colspan="5">${GN[g]}${g !== 'plain' ? ' <i>price optional</i>' : ''}</td><td class="num">${sub ? money(sub) : ''}</td><td></td></tr>`; }
       return head + `<tr class="${bad && edit ? 'bad' : ''} ${g !== 'plain' && !isNum(x.price) ? 'nc' : ''}"><td><b>${esc(x.description || item(x.item_id)?.name || '')}</b></td>
         <td class="num">${edit ? `<input class="qin" data-q="${i}" inputmode="decimal" list="inv-figs" placeholder="qty" value="${esc(x.qty)}">` : esc(x.qty)}</td>
         <td>${edit ? unitSel(x.unit, i) : unitW(x.unit)}</td>
         <td class="num">${edit ? `<span class="pfx">£</span><input class="price" data-p="${i}" inputmode="decimal" placeholder="${needs(x) ? 'price?' : '—'}" value="${esc(x.price)}"><span class="pfx sfx">${perW(x.unit)}</span>` : money(x.price) + ' ' + perW(x.unit)}</td>
-        <td class="num b" data-lt="${i}">${lt(x) != null ? money(lt(x)) : needs(x) ? '—' : '<span class="muted">no charge</span>'}</td><td>${edit ? `<button class="del" data-del="${i}" title="Remove line">✕</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="6" class="muted">No lines yet.</td></tr>';
+        <td class="num">${edit ? `<input class="din" data-d="${i}" inputmode="decimal" placeholder="—" value="${esc(x.discount ?? '')}">` : isNum(x.discount) && Number(x.discount) ? qf(x.discount) + '%' : ''}</td>
+        <td class="num b" data-lt="${i}">${lt(x) != null ? money(lt(x)) : needs(x) ? '—' : '<span class="muted">no charge</span>'}</td><td>${edit ? `<button class="del" data-del="${i}" title="Remove line">✕</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">No lines yet.</td></tr>';
     sums();
-    box.querySelectorAll('[data-q],[data-p]').forEach(inp => inp.oninput = () => {
-      const i = inp.dataset.q ?? inp.dataset.p; lines[i][inp.dataset.q != null ? 'qty' : 'price'] = inp.value.trim();
+    box.querySelectorAll('[data-q],[data-p],[data-d]').forEach(inp => inp.oninput = () => {
+      const i = inp.dataset.q ?? inp.dataset.p ?? inp.dataset.d; lines[i][inp.dataset.q != null ? 'qty' : inp.dataset.p != null ? 'price' : 'discount'] = inp.value.trim();
       const x = lines[i]; m.querySelector(`[data-lt="${i}"]`).innerHTML = lt(x) != null ? money(lt(x)) : needs(x) ? '—' : '<span class="muted">no charge</span>'; sums();
       inp.closest('tr').classList.toggle('bad', needs(x) ? !isNum(x.qty) || !isNum(x.price) : isNum(x.price) && !isNum(x.qty));
     });
@@ -1636,70 +1646,113 @@ async function invOpen(o) {
   combo(m.querySelector('[data-addl]'), { list: () => [...appItems('plain'), ...appItems('beef'), ...appItems('chicken')], value: null, clear: true, placeholder: '+ Add a line (e.g. Beef, Chicken – the meat)',
     onPick: id => { const r = pl.get(id), nx = { item_id: id, description: item(id)?.name || '', qty: '', unit: r?.per || 'kg', price: r ? qf(r.price) : '', kind: 'line' };
       lines = sortLines([...lines, nx]); draw(); box.querySelector(`[data-q="${lines.indexOf(nx)}"]`)?.focus(); } });
+  m.querySelector('[data-dall]').oninput = e => { const v = e.target.value.trim(); lines.forEach(x => x.discount = v); draw(); };
   m.querySelector('[data-redo]').onclick = () => { lines = sortLines(fromOrder()); draw(); toast('Lines rebuilt – press Save to keep them'); };
   const check = all => { for (const x of lines) {
       if (x.price !== '' && !isNum(x.price)) throw new Error(`"${x.price}" is not a price (${x.description})`);
       if (x.qty !== '' && !isNum(x.qty)) throw new Error(`"${x.qty}" is not a quantity (${x.description})`);
+      if (x.discount != null && x.discount !== '' && (!isNum(x.discount) || Number(x.discount) < 0 || Number(x.discount) > 100)) throw new Error(`"${x.discount}" is not a discount % (${x.description})`);
       if (all && needs(x) && (!isNum(x.price) || !isNum(x.qty))) throw new Error(`${x.description}: fill in the ${!isNum(x.qty) ? 'quantity' : 'price'}`);
       if (all && !needs(x) && isNum(x.price) && !isNum(x.qty)) throw new Error(`${x.description}: fill in the quantity, or clear the price`);
     } if (all && !lines.some(x => isNum(x.price) && isNum(x.qty))) throw new Error('Nothing to charge – fill in at least one price'); };
-  const saveLines = () => q(sb.rpc('ord_save_invoice_lines', { p_order: o.id, p_lines: lines.map(({ item_id, description, qty, unit, price }) => ({ item_id, description, qty, unit, price, kind: 'line' })) }));
-  m.querySelector('[data-sp]').onclick = () => safe(async () => { check(false); await saveLines(); close(); toast('Saved'); refresh(); });
-  const invoiceManually = invNo => safe(async () => { check(true); await saveLines(); await q(sb.rpc('ord_save', { p: { id: o.id, action: 'invoice', invoice_number: invNo ?? '', lines: [] } })); close(); toast(`#${o.id} marked invoiced`); refresh(); });
+  const saveLines = () => q(sb.rpc('ord_save_invoice_lines', { p_order: o.id, p_lines: lines.map(({ item_id, description, qty, unit, price, discount }) => ({ item_id, description, qty, unit, price, discount: discount ?? '', kind: 'line' })) }));
+  // prices typed here that are new or different from the customer's price list: offer to save them to it
+  const declined = new Set();
+  const offerPrices = async () => {
+    const ch = lines.filter(x => x.item_id && listOf(x.item_id) !== 'xero' && isNum(x.price)).filter(x => { const r = pl.get(x.item_id);
+      return (!r || Number(r.price) !== Number(x.price) || (r.per || 'kg') !== x.unit) && !declined.has(x.item_id + ':' + x.price + ':' + x.unit); });
+    const uniq = [...new Map(ch.map(x => [x.item_id, x])).values()];
+    if (!uniq.length) return;
+    const per = u => u === 'kg' ? '/kg' : u === 'pack' ? '/packet' : '/unit';
+    const ok = confirm(`Save ${uniq.length === 1 ? 'this price' : 'these prices'} to ${cust(o.customer_id)?.name}'s price list?\n\n` + uniq.map(x => { const r = pl.get(x.item_id);
+      return `• ${x.description}: £${x.price}${per(x.unit)}${r ? `  (was £${qf(r.price)}${per(r.per || 'kg')})` : '  (new)'}`; }).join('\n') + '\n\nOK = save to the price list · Cancel = only this invoice');
+    if (!ok) { uniq.forEach(x => declined.add(x.item_id + ':' + x.price + ':' + x.unit)); return; }
+    await q(sb.rpc('ord_set_cust_prices', { p_customer: o.customer_id, p_rows: uniq.map(x => ({ item_id: x.item_id, price: x.price, per: x.unit })) }));
+    uniq.forEach(x => pl.set(x.item_id, { item_id: x.item_id, price: Number(x.price), per: x.unit }));
+    toast(`Price list updated for ${cust(o.customer_id)?.name}`);
+  };
+  m.querySelector('[data-sp]').onclick = () => safe(async () => { check(false); await offerPrices(); await saveLines(); close(); toast('Saved'); refresh(); });
+  const invoiceManually = invNo => safe(async () => { check(true); await offerPrices(); await saveLines(); await q(sb.rpc('ord_save', { p: { id: o.id, action: 'invoice', invoice_number: invNo ?? '', lines: [] } })); close(); toast(`#${o.id} marked invoiced`); refresh(); });
   m.querySelector('[data-manual]')?.addEventListener('click', () => { const n = prompt('Xero invoice number (optional):', ''); if (n !== null) invoiceManually(n); });
   m.querySelector('[data-go]').onclick = () => {
     if (!toXero) return invoiceManually(m.querySelector('[data-inv]')?.value || '');
-    safe(async () => { check(true); await saveLines(); close(); xeroPreview(o, lines); });
+    safe(async () => { check(true); await offerPrices(); await saveLines(); if (!PANE_KEEP) close(); xeroPreview(o, lines); });
   };
 }
-/* Before sending: how it will look in Xero, with the links it uses; anything not linked is linked here (and remembered) */
+/* Before sending: the customer and every item with its Xero link (change any of them here), then the invoice as Xero will show it.
+   Plain items must be linked; packing items may be linked (a packing item that isn't is left off the Xero invoice). */
 function xeroPreview(o, lines) {
   const xcat = () => items.filter(i => i.list === 'xero' && !i.orphaned && i.active !== false);
-  const c = cust(o.customer_id);
-  const { m, close } = modal(`<div class="mh"><div><div class="mt">Send to Xero – ${esc(c?.name)}</div><div class="ms">Order #${o.id} · this is how the draft invoice will look</div></div><button class="mx" aria-label="Close">✕</button></div>
+  const c0 = cust(o.customer_id);
+  const { m, close } = modal(`<div class="mh"><div><div class="mt">Check & send to Xero – ${esc(c0?.name)}</div><div class="ms">Order #${o.id} · check the links, then send. Changes here are remembered.</div></div><button class="mx" aria-label="Close">✕</button></div>
     <div data-body></div>
-    <div class="mf"><button class="mbtn ghost" data-back>Back</button><button class="mbtn go" data-send>Send to Xero</button></div>`);
-  m.querySelector('.mbox').classList.add('wide');
-  let contacts = null;
+    <div class="mf"><button class="mbtn ghost" data-back>← Back to the invoice</button><span class="xpwhy" data-why></span><button class="mbtn go" data-send>Send to Xero</button></div>`);
+  m.querySelector('.mbox').classList.add('wide', 'xpbox');
+  let contacts = null, editing = null;   // editing: item id (or 'cust') whose link picker is open
+  const sent = x => isNum(x.price) && isNum(x.qty) && !(isPack(x.item_id) && !item(x.item_id)?.xero_code);
   const draw = () => {
-    const groups = new Map(), loose = [];
-    lines.filter(x => !(isPack(x.item_id) && !isNum(x.price))).forEach(x => { const it = item(x.item_id); const code = it?.xero_code;
-      if (!code) { loose.push(x); return; }
-      const name = it.list === 'xero' ? it.name : xDesc(it) || code, key = code + '|' + name.toLowerCase();
-      const g = groups.get(key) || { name, item: it.list === 'xero' ? '' : (it.xero_name || code), qty: 0, units: new Set(), total: 0, from: [] };
-      g.total += Math.round(Number(x.qty) * Number(x.price) * 100) / 100; g.qty += Number(x.qty); g.units.add(x.unit || 'kg'); g.from.push(x.description); groups.set(key, g); });
-    const unlinked = [...new Set(loose.map(x => x.item_id))], mustLink = unlinked.filter(id => !isPack(id));   // packing: asked, but optional
+    const c = cust(o.customer_id);
+    const ids = [...new Set(lines.filter(x => x.item_id && (isNum(x.price) || !isPack(x.item_id))).map(x => x.item_id))];
+    const mustLink = ids.filter(id => !isPack(id) && !item(id)?.xero_code);
+    // the invoice as Xero will show it
+    const groups = new Map();
+    lines.filter(sent).forEach(x => { const it = item(x.item_id); if (!it?.xero_code) return;
+      const name = it.list === 'xero' ? it.name : xDesc(it), d = Number(x.discount) || 0, key = it.xero_code + '|' + name.toLowerCase() + '|' + d;
+      const g = groups.get(key) || { name, xitem: it.list === 'xero' ? it.name : (it.xero_name || it.xero_code), qty: 0, units: new Set(), gross: 0, d };
+      g.gross += Math.round(Number(x.qty) * Number(x.price) * 100) / 100; g.qty += Number(x.qty); g.units.add(x.unit || 'kg'); groups.set(key, g); });
+    const G = [...groups.values()].map(g => { const one = g.units.size === 1 && g.qty > 0, u = [...g.units][0], q3 = Math.round(g.qty * 1000) / 1000;
+      return { ...g, one, u, q3, net: Math.round(g.gross * (1 - g.d / 100) * 100) / 100 }; });
+    const left = lines.filter(x => isPack(x.item_id) && isNum(x.price) && !item(x.item_id)?.xero_code);
+    const row = id => { const it = item(id), linked = !!it?.xero_code, pk = isPack(id);
+      return `<tr class="${!linked && !pk ? 'need' : ''}"><td><b>${esc(it?.name)}</b><div class="muted" style="font-size:12px">${pk ? (listOf(id) === 'beef' ? 'Beef packing' : 'Chicken packing') + ' · link optional' : 'Item · must be linked'}</div></td>
+        <td>${editing === id ? `<div data-xl="${id}"></div>` : linked ? `${esc(it.xero_name || it.xero_code)} <button class="link sm" data-ed="${id}">change</button>` : `<button class="link sm ${pk ? '' : 'late-t'}" data-ed="${id}">${pk ? 'link (optional)' : 'choose the Xero item'}</button>${pk ? ' <span class="muted" style="font-size:12px">– left off if not linked</span>' : ''}`}</td>
+        <td><input class="xpd" data-xd="${id}" value="${esc(it?.xero_desc || '')}" placeholder="${esc(it?.xero_name || it?.name || '')}" ${linked || editing === id ? '' : 'disabled'}></td></tr>`; };
     m.querySelector('[data-body]').innerHTML = `
-      <div class="xpc"><b>Customer in Xero:</b> ${c?.xero_contact_id ? `${esc(c.xero_name || c.name)} <button class="link" data-chc>change</button>` : `<span class="late-t">not linked</span> – <button class="link" data-chc>choose the Xero contact</button> <span class="muted">(or leave it: Xero contact “${esc(c?.name)}” is used or created)</span>`}</div>
-      <div data-cpick></div>
-      <table class="xpt"><thead><tr><th>Xero line</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Total</th></tr></thead><tbody>
-      ${[...groups.values()].map(g => `<tr><td><b>${esc(g.name)}</b>${g.item && g.item !== g.name ? ` <span class="muted" style="font-size:13px">(Xero item: ${esc(g.item)})</span>` : ''}<div class="muted" style="font-size:13px">${esc(g.from.join(', '))}</div></td>${(() => { const one = g.units.size === 1 && g.qty > 0, u = [...g.units][0], q3 = Math.round(g.qty * 1000) / 1000, t = Math.round(g.total * 100) / 100;
-        return `<td class="num">${one ? `${qf(q3)} ${u === 'kg' ? 'kg' : u === 'pack' ? 'packets' : 'units'}` : '1'}</td><td class="num">${one ? money(t / q3) : money(t)}</td><td class="num">${money(t)}</td></tr>`; })()}`).join('')}
-      </tbody></table>
-      ${unlinked.length ? `<div class="xpu"><b class="late-t">Not linked to a Xero item yet:</b>${unlinked.map(id => `<div class="xpr3"><span>${esc(item(id)?.name)}${isPack(id) ? ' <span class="muted" style="font-size:12px">(optional – left off if not linked)</span>' : ''}</span><div data-xl="${id}"></div><input data-xld="${id}" placeholder="Description on invoice (optional)"></div>`).join('')}
-        <div class="muted" style="font-size:13px">Choose once – it’s remembered (and can be changed on the Xero links screen).${mustLink.length ? '' : ' Packing items you don’t link are simply not sent – you can send now.'}</div></div>` : ''}
-      <div class="total">Total: ${money([...groups.values()].reduce((a, g) => a + Math.round(g.total * 100) / 100, 0))}</div>`;
-    m.querySelectorAll('[data-xl]').forEach(el => combo(el, { list: xcat, value: null, placeholder: 'Type the Xero item…', onPick: xid => safe(async () => {
-      const x = item(xid), id = Number(el.dataset.xl); await q(sb.rpc('ord_set_links', { p_kind: 'item', p_ids: [id], p_x: { code: x.xero_code, item_id: x.xero_item_id, name: x.name, tax_type: x.xero_tax_type, account: x.xero_account } }));
-      const d = m.querySelector(`[data-xld="${id}"]`)?.value.trim(); if (d) await q(sb.rpc('ord_set_item_desc', { p_ids: [id], p_desc: d }));
-      await loadLists(); draw(); }) }));
-    m.querySelector('[data-chc]').onclick = () => safe(async () => {
-      const box = m.querySelector('[data-cpick]'); box.innerHTML = '<p class="muted">Loading Xero contacts…</p>';
+      <div class="xps"><div class="sech">Customer</div>
+        <div class="xpcr"><b>${esc(c?.name)}</b><span class="muted">→</span>${editing === 'cust' ? '<div data-cc style="flex:1 1 300px"></div>'
+          : c?.xero_contact_id ? `<span>${esc(c.xero_name || c.name)}</span> <button class="link sm" data-edc>change</button>`
+          : `<span class="muted">not linked – Xero contact “${esc(c?.name)}” will be used or created</span> <button class="link sm" data-edc>choose the Xero contact</button>`}</div></div>
+      <div class="xps"><div class="sech">Items and their Xero links</div>
+        <table class="xpt xpl"><thead><tr><th>Item</th><th>Xero item</th><th>Description on the invoice</th></tr></thead><tbody>${ids.map(row).join('')}</tbody></table>
+        <p class="muted" style="font-size:13px;margin:6px 0 0">Same Xero item <b>and</b> same description = one line on the invoice. A different description (or discount) makes its own line. Leave the description empty to use the Xero item name.</p></div>
+      <div class="xps"><div class="sech">The invoice in Xero</div>
+        <table class="xpt"><thead><tr><th>Line</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Disc.</th><th class="num">Total</th></tr></thead><tbody>
+        ${G.map(g => `<tr><td><b>${esc(g.name)}</b>${g.xitem && g.xitem !== g.name ? ` <span class="muted" style="font-size:12px">(Xero item: ${esc(g.xitem)})</span>` : ''}</td>
+          <td class="num">${g.one ? `${qf(g.q3)} ${g.u === 'kg' ? 'kg' : g.u === 'pack' ? 'packets' : 'units'}` : '1'}</td><td class="num">${g.one ? money(g.gross / g.q3) : money(g.gross)}</td>
+          <td class="num">${g.d ? qf(g.d) + '%' : ''}</td><td class="num"><b>${money(g.net)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nothing linked yet</td></tr>'}
+        </tbody></table>
+        ${left.length ? `<div class="muted" style="font-size:13px;margin-top:8px">Not sent (packing, not linked): ${esc(left.map(x => x.description).join(', '))}</div>` : ''}
+        <div class="total">Total: ${money(G.reduce((a, g) => a + g.net, 0))} <span class="muted" style="font-size:14px;font-weight:700">+ VAT as set in Xero</span></div></div>`;
+    // link pickers
+    m.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => { editing = Number(b.dataset.ed); draw(); m.querySelector('[data-xl] input')?.focus(); });
+    m.querySelectorAll('[data-xl]').forEach(el => combo(el, { list: xcat, value: item(Number(el.dataset.xl))?.xero_code ? xcat().find(x => x.xero_code === item(Number(el.dataset.xl)).xero_code)?.id ?? null : null, placeholder: 'Type the Xero item…', onPick: xid => safe(async () => {
+      const x = item(xid), id = Number(el.dataset.xl);
+      await q(sb.rpc('ord_set_links', { p_kind: 'item', p_ids: [id], p_x: { code: x.xero_code, item_id: x.xero_item_id, name: x.name, tax_type: x.xero_tax_type, account: x.xero_account } }));
+      editing = null; await loadLists(); draw(); toast(`${item(id)?.name} → ${x.name}`); }) }));
+    m.querySelectorAll('[data-xd]').forEach(inp => inp.onchange = () => safe(async () => {
+      const id = Number(inp.dataset.xd); await q(sb.rpc('ord_set_item_desc', { p_ids: [id], p_desc: inp.value }));
+      const it = item(id); if (it) it.xero_desc = inp.value.trim() || null; draw(); toast('Description saved'); }));
+    const edc = m.querySelector('[data-edc]');
+    if (edc) edc.onclick = () => { editing = 'cust'; draw(); };
+    const cc = m.querySelector('[data-cc]');
+    if (cc) safe(async () => {
+      cc.innerHTML = '<span class="muted">Loading Xero contacts…</span>';
       contacts = contacts || (await xeroCall({ action: 'contacts' })).contacts;
-      box.innerHTML = '<div class="xpr"><span>Xero contact</span><div data-cc></div></div>';
-      combo(box.querySelector('[data-cc]'), { list: () => contacts, value: null, placeholder: 'Type the Xero contact…', onPick: cid => safe(async () => {
+      cc.innerHTML = '';
+      combo(cc, { list: () => contacts, value: null, placeholder: 'Type the Xero contact…', onPick: cid => safe(async () => {
         const x = contacts.find(k => k.id === cid); await q(sb.rpc('ord_set_links', { p_kind: 'customer', p_ids: [o.customer_id], p_x: { contact_id: x.id, name: x.name } }));
-        await loadLists(); draw(); }) });
-      box.querySelector('input').focus();
+        editing = null; await loadLists(); draw(); toast(`Customer → ${x.name}`); }) });
+      cc.querySelector('input')?.focus();
     });
-    m.querySelector('[data-send]').disabled = !!mustLink.length;
+    m.querySelector('[data-send]').disabled = !!mustLink.length || !G.length;
+    m.querySelector('[data-why]').textContent = mustLink.length ? `Link ${mustLink.length === 1 ? item(mustLink[0])?.name : mustLink.length + ' items'} first` : !G.length ? 'Nothing to send' : '';
   };
   draw();
   m.querySelector('.mx').onclick = close; m.querySelector('[data-back]').onclick = () => { close(); invOpen(o); };
   m.querySelector('[data-send]').onclick = e => safe(async () => {
     const b = e.target; b.disabled = true; b.textContent = 'Sending…';
     try { const r = await xeroCall({ action: 'send', order_id: o.id }); close(); toast(`✓ Sent to Xero as draft ${r.invoice_number}`); refresh(); }
-    finally { b.disabled = false; b.textContent = 'Send to Xero'; }
+    finally { if (b.isConnected) { b.disabled = false; b.textContent = 'Send to Xero'; } }
   });
 }
 /* Xero links: which Xero item each app item goes under, and which Xero contact each customer is */
@@ -1780,7 +1833,7 @@ const steps = (st, sm) => { const a = st === 'draft' ? 0 : st === 'new' ? 1 : st
 const weekStart = (off = 0) => { const d = new Date(); d.setHours(12); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + off * 7); return d.toLocaleDateString('en-CA'); };
 const monthStart = (off = 0) => { const d = new Date(); d.setHours(12); d.setDate(1); d.setMonth(d.getMonth() + off); return d.toLocaleDateString('en-CA'); };
 const addDays = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA'); };
-const lineAmt = x => x.qty != null && x.price != null ? Math.round(Number(x.qty) * Number(x.price) * 100) / 100 : 0;
+const lineAmt = x => x.qty != null && x.price != null ? Math.round(Number(x.qty) * Number(x.price) * (1 - (Number(x.discount) || 0) / 100) * 100) / 100 : 0;
 async function loadFull(id) {
   const o = await q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('id', id).single());
   o.lines = o.ord_lines.sort((a, b) => a.position - b.position); delete o.ord_lines; return o;
@@ -1869,7 +1922,7 @@ async function ordersScreen() {
   const [open, invd, tasks] = await Promise.all([
     q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').neq('status', 'invoiced').order('prep_date').order('id')),
     q(qi.order('invoiced_at', { ascending: false }).limit(a ? 1000 : 60)),
-    q(sb.from('ord_tasks').select('*').eq('done', false).order('due_date').order('created_at')),
+    q(sb.from('ord_tasks').select('*').or(`done.eq.false,done_at.gte.${new Date(Date.now() - 14 * 864e5).toISOString()}`).order('due_date').order('created_at')),
   ]);
   const all = [...open, ...invd];
   all.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((x, y) => x.position - y.position); delete o.ord_lines; });
@@ -1881,12 +1934,13 @@ async function ordersScreen() {
       <input class="fsearch grow" id="h-search" placeholder="🔍 Customer, order # or item" value="${esc(H.search)}"></div>
     <div class="olay"><div id="h-tabs"></div>
       <aside class="oside">
-        <div class="card"><div class="dch"><span>Prep tasks</span><b>${tasks.filter(t => t.kind === 'prep').length}</b></div><div id="h-tp"></div></div>
-        <div class="card"><div class="dch"><span>Shop orders</span><b>${tasks.filter(t => t.kind === 'shop').length}</b></div><div id="h-ts"></div></div>
-        <div class="card"><div class="dch"><span>Invoicing tasks</span><b>${tasks.filter(t => t.kind === 'inv').length}</b></div><div id="h-ti"></div></div>
+        <div class="card"><div class="dch"><span>Prep tasks</span><b>${tasks.filter(t => t.kind === 'prep' && !t.done).length}</b></div><div id="h-tp"></div></div>
+        <div class="card"><div class="dch"><span>Shop orders</span><b>${tasks.filter(t => t.kind === 'shop' && !t.done).length}</b></div><div id="h-ts"></div></div>
+        <div class="card"><div class="dch"><span>Invoicing tasks</span><b>${tasks.filter(t => t.kind === 'inv' && !t.done).length}</b></div><div id="h-ti"></div></div>
       </aside></div>`;
-  const taskList = k => { const L = tasks.filter(t => t.kind === k);
-    return L.length ? L.map(t => `<div class="otask"><button class="tick" data-t="${t.id}" aria-label="Tick"><span class="cbx"></span></button><span class="ttx" data-te="${t.id}">${esc(t.text)}<i class="${t.due_date < today ? 'late-t' : ''}">${t.due_date === today ? 'Today' : ukDate(t.due_date)}</i></span></div>`).join('') : '<div class="pempty">Nothing open</div>'; };
+  const taskList = k => { const L = tasks.filter(t => t.kind === k && !t.done), D = tasks.filter(t => t.kind === k && t.done).sort((x, y) => (y.done_at || '').localeCompare(x.done_at || ''));
+    return (L.length ? L.map(t => `<div class="otask"><button class="tick" data-t="${t.id}" aria-label="Tick"><span class="cbx"></span></button><span class="ttx" data-te="${t.id}">${esc(t.text)}<i class="${t.due_date < today ? 'late-t' : ''}">${t.due_date === today ? 'Today' : ukDate(t.due_date)}</i></span></div>`).join('') : '<div class="pempty">Nothing open</div>') + (D.length ? `<details class="tdone"><summary>Ticked off · ${D.length} <span class="muted">(last 2 weeks)</span></summary>
+      ${D.map(t => `<div class="otask done"><span class="ok">✓</span><span class="ttx">${esc(t.text)}<i>${t.done_by ? esc(uname(t.done_by)) + ' · ' : ''}${t.done_at ? new Date(t.done_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}</i></span><button class="link sm" data-un="${t.id}">undo</button></div>`).join('')}</details>` : ''); };
   $('#h-tp').innerHTML = taskList('prep'); $('#h-ts').innerHTML = taskList('shop'); $('#h-ti').innerHTML = taskList('inv');
   const match = o => { const t = H.search.trim().toLowerCase().replace(/^#/, ''); if (!t) return true;
     return String(o.id) === t || (cust(o.customer_id)?.name || '').toLowerCase().includes(t) || o.lines.some(l => (item(l.item_id)?.name || '').toLowerCase().includes(t)); };
@@ -1913,6 +1967,7 @@ async function ordersScreen() {
   const si = $('#h-search'); si.oninput = () => { H.search = si.value; draw(); };
   document.querySelectorAll('.otask .tick').forEach(x => x.onclick = () => safe(async () => { await q(sb.rpc('ord_task_tick', { p_id: Number(x.dataset.t), p_done: true })); toast('Ticked off'); ordersScreen(); }));
   document.querySelectorAll('[data-te]').forEach(x => x.onclick = () => { const t = tasks.find(y => y.id == x.dataset.te); taskModal(t.kind, t); });
+  document.querySelectorAll('.oside [data-un]').forEach(x => x.onclick = () => safe(async () => { await q(sb.rpc('ord_task_tick', { p_id: Number(x.dataset.un), p_done: false })); toast('Back on the list'); ordersScreen(); }));
 }
 
 /* ================= REPORTING ================= */
