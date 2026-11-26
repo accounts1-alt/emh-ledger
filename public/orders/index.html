@@ -572,6 +572,17 @@ async function loadLists() {
   ]);
   try { PARTS = JSON.parse(ps[0]?.value || '[]'); } catch { PARTS = []; }
 }
+/* Money lines for any orders: the saved invoice lines, or – for orders invoiced the old way (a price per order line) –
+   one line per order item from those prices. Orders need .lines (not removed). */
+async function moneyLines(orders) {
+  const ids = orders.filter(o => o.status !== 'new').map(o => o.id); let il = [];
+  for (let i = 0; i < ids.length; i += 150) il = il.concat(await q(sb.from('ord_invoice_lines').select('*').in('order_id', ids.slice(i, i + 150))));
+  const has = new Set(il.map(x => x.order_id)), old = orders.filter(o => o.status !== 'new' && !has.has(o.id));
+  const pr = old.length ? await pricesFor(old.flatMap(o => o.lines.map(l => l.id))) : {};
+  old.forEach(o => o.lines.forEach(l => { if (pr[l.id] == null) return;
+    il.push({ order_id: o.id, item_id: l.item_id, description: item(l.item_id)?.name || '', qty: Number(l.qty_net ?? l.qty_sent ?? 0), unit: l.sent_unit === 'kg' ? 'kg' : 'unit', price: Number(pr[l.id]), position: l.position }); }));
+  return il;
+}
 async function pricesFor(lineIds) {
   const out = {};
   if (role === 'processing') return out;
@@ -1792,15 +1803,15 @@ async function dashScreen() {
     q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').neq('status', 'invoiced').order('prep_date').order('id')),
     q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('status', 'invoiced').gte('invoiced_at', since7).order('invoiced_at', { ascending: false }).limit(30)),
     q(sb.from('ord_tasks').select('id, kind, due_date').eq('done', false)),
-    q(sb.from('ord_orders').select('id, delivery_date, status, birds').gte('delivery_date', from8)),
+    q(sb.from('ord_orders').select('id, delivery_date, status, birds, ord_lines!ord_lines_order_id_fkey(id, item_id, qty_net, qty_sent, sent_unit, removed, position)').gte('delivery_date', from8)),
   ]);
   [...open, ...done].forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position); delete o.ord_lines; });
   // money per week (last 8 weeks, invoiced orders)
   const wk = d => { const w = new Date(d + 'T12:00:00'); w.setDate(w.getDate() - ((w.getDay() + 6) % 7)); return w.toLocaleDateString('en-CA'); };
   const weeks = [...Array(8)].map((_, i) => weekStart(i - 7)), perWeek = Object.fromEntries(weeks.map(w => [w, 0]));
   if (money0) { const inv = hist.filter(o => o.status === 'invoiced'), byId = new Map(inv.map(o => [o.id, o]));
-    for (let i = 0; i < inv.length; i += 150) (await q(sb.from('ord_invoice_lines').select('order_id, qty, price').in('order_id', inv.slice(i, i + 150).map(o => o.id))))
-      .forEach(x => { const k = wk(byId.get(x.order_id).delivery_date); if (k in perWeek) perWeek[k] += lineAmt(x); }); }
+    inv.forEach(o => { o.lines = (o.ord_lines || []).filter(l => !l.removed); });
+    (await moneyLines(inv)).forEach(x => { const k = wk(byId.get(x.order_id).delivery_date); if (k in perWeek) perWeek[k] += lineAmt(x); }); }
   // packing load: next 7 days (late counted on today)
   const days = [...Array(7)].map((_, i) => isoDay(i)), load = Object.fromEntries(days.map(d => [d, 0]));
   open.filter(o => o.status === 'new').forEach(o => { const d = o.prep_date < today ? today : o.prep_date; if (d in load) load[d]++; });
@@ -1863,7 +1874,7 @@ async function ordersScreen() {
   const all = [...open, ...invd];
   all.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((x, y) => x.position - y.position); delete o.ord_lines; });
   const tot = {}, priced = all.filter(o => o.status !== 'new');
-  for (let i = 0; i < priced.length; i += 150) (await q(sb.from('ord_invoice_lines').select('order_id, qty, price').in('order_id', priced.slice(i, i + 150).map(o => o.id)))).forEach(x => tot[x.order_id] = (tot[x.order_id] || 0) + lineAmt(x));
+  (await moneyLines(priced)).forEach(x => tot[x.order_id] = (tot[x.order_id] || 0) + lineAmt(x));
   $('#view').innerHTML = `
     <div class="fbar">
       <button class="big" id="h-new">+ New order</button><button class="btn" id="h-prep">+ Prep task</button><button class="btn" id="h-shop">+ Shop order</button><button class="btn" id="h-invt">+ Invoicing task</button>
@@ -1915,7 +1926,7 @@ async function reportsScreen() {
   const orders = await q(qy);
   orders.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed); delete o.ord_lines; });
   const ids = orders.map(o => o.id), lids = orders.flatMap(o => o.lines.map(l => l.id));
-  let il = []; for (let i = 0; i < ids.length; i += 150) il = il.concat(await q(sb.from('ord_invoice_lines').select('*').in('order_id', ids.slice(i, i + 150))));
+  const il = await moneyLines(orders);
   const rs = role === 'admin' ? await resaleFor(lids) : {};
   const oById = new Map(orders.map(o => [o.id, o]));
   const inv = il.filter(x => oById.get(x.order_id)?.status === 'invoiced');
