@@ -1652,13 +1652,12 @@ function xeroPreview(o, lines) {
   let contacts = null;
   const draw = () => {
     const groups = new Map(), loose = [];
-    const skip = lines.filter(x => isPack(x.item_id) && isNum(x.price) && !item(x.item_id)?.xero_code);   // packing not linked: left off the Xero invoice
-    lines.filter(x => !(isPack(x.item_id) && (!isNum(x.price) || !item(x.item_id)?.xero_code))).forEach(x => { const it = item(x.item_id); const code = it?.xero_code;
+    lines.filter(x => !(isPack(x.item_id) && !isNum(x.price))).forEach(x => { const it = item(x.item_id); const code = it?.xero_code;
       if (!code) { loose.push(x); return; }
       const name = it.list === 'xero' ? it.name : xDesc(it) || code, key = code + '|' + name.toLowerCase();
       const g = groups.get(key) || { name, item: it.list === 'xero' ? '' : (it.xero_name || code), qty: 0, units: new Set(), total: 0, from: [] };
       g.total += Math.round(Number(x.qty) * Number(x.price) * 100) / 100; g.qty += Number(x.qty); g.units.add(x.unit || 'kg'); g.from.push(x.description); groups.set(key, g); });
-    const unlinked = [...new Set(loose.map(x => x.item_id))];
+    const unlinked = [...new Set(loose.map(x => x.item_id))], mustLink = unlinked.filter(id => !isPack(id));   // packing: asked, but optional
     m.querySelector('[data-body]').innerHTML = `
       <div class="xpc"><b>Customer in Xero:</b> ${c?.xero_contact_id ? `${esc(c.xero_name || c.name)} <button class="link" data-chc>change</button>` : `<span class="late-t">not linked</span> – <button class="link" data-chc>choose the Xero contact</button> <span class="muted">(or leave it: Xero contact “${esc(c?.name)}” is used or created)</span>`}</div>
       <div data-cpick></div>
@@ -1666,9 +1665,8 @@ function xeroPreview(o, lines) {
       ${[...groups.values()].map(g => `<tr><td><b>${esc(g.name)}</b>${g.item && g.item !== g.name ? ` <span class="muted" style="font-size:13px">(Xero item: ${esc(g.item)})</span>` : ''}<div class="muted" style="font-size:13px">${esc(g.from.join(', '))}</div></td>${(() => { const one = g.units.size === 1 && g.qty > 0, u = [...g.units][0], q3 = Math.round(g.qty * 1000) / 1000, t = Math.round(g.total * 100) / 100;
         return `<td class="num">${one ? `${qf(q3)} ${u === 'kg' ? 'kg' : u === 'pack' ? 'packets' : 'units'}` : '1'}</td><td class="num">${one ? money(t / q3) : money(t)}</td><td class="num">${money(t)}</td></tr>`; })()}`).join('')}
       </tbody></table>
-      ${unlinked.length ? `<div class="xpu"><b class="late-t">Not linked to a Xero item yet:</b>${unlinked.map(id => `<div class="xpr3"><span>${esc(item(id)?.name)}</span><div data-xl="${id}"></div><input data-xld="${id}" placeholder="Description on invoice (optional)"></div>`).join('')}
-        <div class="muted" style="font-size:13px">Choose once – it’s remembered (and can be changed on the Xero links screen).</div></div>` : ''}
-      ${skip.length ? `<div class="muted" style="margin-top:10px;font-size:14px">Not sent to Xero (packing, not linked): ${esc(skip.map(x => x.description).join(', '))}</div>` : ''}
+      ${unlinked.length ? `<div class="xpu"><b class="late-t">Not linked to a Xero item yet:</b>${unlinked.map(id => `<div class="xpr3"><span>${esc(item(id)?.name)}${isPack(id) ? ' <span class="muted" style="font-size:12px">(optional – left off if not linked)</span>' : ''}</span><div data-xl="${id}"></div><input data-xld="${id}" placeholder="Description on invoice (optional)"></div>`).join('')}
+        <div class="muted" style="font-size:13px">Choose once – it’s remembered (and can be changed on the Xero links screen).${mustLink.length ? '' : ' Packing items you don’t link are simply not sent – you can send now.'}</div></div>` : ''}
       <div class="total">Total: ${money([...groups.values()].reduce((a, g) => a + Math.round(g.total * 100) / 100, 0))}</div>`;
     m.querySelectorAll('[data-xl]').forEach(el => combo(el, { list: xcat, value: null, placeholder: 'Type the Xero item…', onPick: xid => safe(async () => {
       const x = item(xid), id = Number(el.dataset.xl); await q(sb.rpc('ord_set_links', { p_kind: 'item', p_ids: [id], p_x: { code: x.xero_code, item_id: x.xero_item_id, name: x.name, tax_type: x.xero_tax_type, account: x.xero_account } }));
@@ -1683,7 +1681,7 @@ function xeroPreview(o, lines) {
         await loadLists(); draw(); }) });
       box.querySelector('input').focus();
     });
-    m.querySelector('[data-send]').disabled = !!unlinked.length;
+    m.querySelector('[data-send]').disabled = !!mustLink.length;
   };
   draw();
   m.querySelector('.mx').onclick = close; m.querySelector('[data-back]').onclick = () => { close(); invOpen(o); };
