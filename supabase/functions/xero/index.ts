@@ -95,26 +95,31 @@ async function send(orderId: number, who: string) {
   const price = new Map((prices ?? []).map(p => [p.line_id, Number(p.price)]));
   // invoice lines worked out from the customer's price list (if any) replace the one-line-per-item invoice
   const { data: ils } = await db.from('ord_invoice_lines').select('*').eq('order_id', orderId).order('position');
-  const { data: items } = await db.from('ord_items').select('id, name, xero_code, xero_name, xero_tax_type, xero_account').in('id', [...lines.map(l => l.item_id), ...(ils ?? []).map(x => x.item_id).filter(Boolean)]);
+  const { data: items } = await db.from('ord_items').select('id, name, list, xero_code, xero_name, xero_desc, xero_tax_type, xero_account').in('id', [...lines.map(l => l.item_id), ...(ils ?? []).map(x => x.item_id).filter(Boolean)]);
   const item = new Map((items ?? []).map(i => [i.id, i]));
   const { data: cust } = await db.from('ord_customers').select('id, name, xero_contact_id, is_test').eq('id', o.customer_id).single();
   if (cust?.is_test) throw new Fail('This is a test customer – it is never sent to Xero');
   const { data: tx } = await db.from('ord_settings').select('value').eq('key', 'xero_tax_type').maybeSingle();
   const taxType = tx?.value || 'ZERORATEDOUTPUT';
 
-  // invoice lines are grouped by the Xero item each app item is linked to: one combined line per Xero item
+  // invoice lines are grouped by Xero item + description: one combined line per (Xero item, description);
+  // the same Xero item with a different description is its own line. Packing lines with no price are not charged.
   let LineItems: Record<string, unknown>[];
   if (ils?.length) {
     const groups = new Map<string, { code: string; name: string; tax: string; acct: string; kg: number; total: number; allKg: boolean }>();
     for (const x of ils) {
-      if (x.price == null || x.qty == null) throw new Fail(`${x.description}: fill in the ${x.qty == null ? 'quantity' : 'price'}`);
       const it = item.get(x.item_id);
+      const packing = it?.list === 'beef' || it?.list === 'chicken';
+      if (packing && x.price == null) continue;
+      if (x.price == null || x.qty == null) throw new Fail(`${x.description}: fill in the ${x.qty == null ? 'quantity' : 'price'}`);
       if (!it?.xero_code) throw new Fail(`“${it?.name ?? x.description}” is not linked to a Xero item yet – link it in Xero links`);
-      const g = groups.get(it.xero_code) ?? { code: it.xero_code, name: it.xero_name || it.name, tax: it.xero_tax_type || taxType, acct: it.xero_account || SALES_ACCOUNT, kg: 0, total: 0, allKg: true };
+      const desc = (it.xero_desc || it.xero_name || it.name || '').trim(), key = it.xero_code + '|' + desc.toLowerCase();
+      const g = groups.get(key) ?? { code: it.xero_code, name: desc, tax: it.xero_tax_type || taxType, acct: it.xero_account || SALES_ACCOUNT, kg: 0, total: 0, allKg: true };
       g.total += Math.round(Number(x.qty) * Number(x.price) * 100) / 100;
       if (x.unit === 'kg') g.kg += Number(x.qty); else g.allKg = false;
-      groups.set(it.xero_code, g);
+      groups.set(key, g);
     }
+    if (!groups.size) throw new Fail('Nothing to charge on this invoice – fill in at least one price');
     LineItems = [...groups.values()].map(g => {
       const total = Math.round(g.total * 100) / 100, kg = Math.round(g.kg * 1000) / 1000;
       const byKg = g.allKg && kg > 0;

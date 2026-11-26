@@ -76,15 +76,14 @@ Deno.serve(async req => {
 
     const body = JSON.stringify({
       contents: [{ parts: [{ text: PROMPT(expect) }, ...images.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d.replace(/^data:image\/\w+;base64,/, '') } }))] }],
-      generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
+      generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA, thinkingConfig: { thinkingLevel: 'low' } },   // low thinking: full thinking took over a minute
     });
-    const t0 = Date.now();   // keep every request well under a minute
+    const t0 = Date.now();
     const call = (model: string) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': k.value }, body, signal: AbortSignal.timeout(Math.max(8000, 55000 - (Date.now() - t0))) });
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': k.value }, body, signal: AbortSignal.timeout(Math.max(8000, 110000 - (Date.now() - t0))) });
     const gone = (status: number, m: string) => status === 404 || /no longer available|not found|is not supported|deprecated|retired/i.test(m);
     const busy = (status: number, m: string) => status === 503 || status === 429 || status === 500 || /high demand|overloaded|try again|unavailable|resource has been exhausted/i.test(m);
-    // One quick pass: a busy model gets one other model tried, then we hand back {busy:true} and the app retries.
-    // (Long waits in here get the connection cut before Gemini answers.)
+    // One quick pass: a busy model gets one other model tried, then we hand back {busy:true} and the app retries once.
     let busyCount = 0;
     let candidates = goodModel ? [goodModel, ...PREFERRED.filter(x => x !== goodModel)] : [...PREFERRED];
     let listed = false, out: any = {}, r: Response | null = null, lastMsg = '';
@@ -95,7 +94,7 @@ Deno.serve(async req => {
       if (r.ok) { goodModel = candidates[i]; break; }
       lastMsg = String(out?.error?.message ?? r.status);
       if (r.status === 400 && /API key/i.test(lastMsg)) throw new Fail('Gemini did not accept the key – check it in Settings');
-      if (busy(r.status, lastMsg)) { if (++busyCount >= 2 || Date.now() - t0 > 50000) return json({ busy: true, error: lastMsg }); continue; }
+      if (busy(r.status, lastMsg)) { if (++busyCount >= 2 || Date.now() - t0 > 100000) return json({ busy: true, error: lastMsg }); continue; }
       if (!gone(r.status, lastMsg)) throw new Fail(`Gemini said: ${lastMsg}`);
       if (i === candidates.length - 1 && !listed) {
         // ask Google which Flash models this key may use, newest first
@@ -120,7 +119,7 @@ Deno.serve(async req => {
       kind: l.kind, crossed_out: !!l.crossed_out,
       packets: l.packets == null ? null : Number(l.packets), kg: l.kg == null ? null : Number(l.kg), total: l.total == null ? null : Number(l.total),
     }));
-    return json({ labels });
+    return json({ labels, model: goodModel, ms: Date.now() - t0 });
   } catch (e) {
     const msg = e instanceof Fail ? e.message : `Something went wrong: ${(e as Error).message}`;
     return json({ error: msg }, e instanceof Fail ? 400 : 500);
