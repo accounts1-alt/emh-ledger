@@ -474,6 +474,7 @@
   .hbar .hl { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .hbar .ht .bar { display: block; height: 14px; border-radius: 99px; background: #ff6b5b; min-width: 4px; } .hbar .hv { text-align: right; font-weight: 900; }
   .rtable { padding: 6px 0; } .otab.rt { table-layout: auto; min-width: 0; } .otab.rt th, .otab.rt td { width: auto !important; } .otab.rt td.b { font-weight: 900; color: #1d2a5b; }
   .otab .num { text-align: right; } .otab tr.tfoot td { border-top: 2px solid #e6e9f4; font-weight: 900; background: #fafbff; }
+  .plt tr.sel td { background: #eef1fd; } .plt { margin-top: 6px; } #s-pl { max-width: 760px; }
   .hide { display: none !important; }
 </style>
 </head>
@@ -1948,6 +1949,8 @@ async function setupScreen() {
       <div class="actions"><button class="link" id="s-padd">+ Add a piece</button><button class="btn blue" id="s-psave">Save pieces</button></div></div>
 
     <div class="card" data-ss="prices"><h2>Price lists</h2><p class="muted">What we charge each customer for each item. Invoicing fills these in automatically.</p>
+      <div id="s-plt"></div>
+      <div class="sech" style="margin-top:22px">Open or start a price list</div>
       <div class="row"><div style="flex:1 1 300px"><div id="s-plc"></div></div></div><div id="s-pl"></div></div>
 
     <div class="card" data-ss="customers"><h2>Customers <span class="muted">${custRows.length}</span></h2>
@@ -2012,10 +2015,21 @@ async function setupScreen() {
         out.push({ customer_id: SET.plc, item_id: Number(i.dataset.pp), price: Number(v), per: box.querySelector(`[data-pper="${i.dataset.pp}"]`).value }); });
       await q(sb.from('ord_cust_prices').delete().eq('customer_id', SET.plc));
       if (out.length) await q(sb.from('ord_cust_prices').insert(out));
-      toast(`Price list saved for ${cust(SET.plc)?.name}`);
+      toast(`Price list saved for ${cust(SET.plc)?.name}`); setupScreen();
     });
   });
   drawPL();
+  if (S.sec === 'prices') safe(async () => {
+    const all = await q(sb.from('ord_cust_prices').select('customer_id, item_id, updated_at'));
+    const nAll = Object.keys(LISTS).reduce((t, l) => t + appItems(l).length, 0);
+    const by = new Map(); all.forEach(r => { const g = by.get(r.customer_id) || { n: 0, l: {}, at: '' }; g.n++; const L = listOf(r.item_id); g.l[L] = (g.l[L] || 0) + 1; if ((r.updated_at || '') > g.at) g.at = r.updated_at || ''; by.set(r.customer_id, g); });
+    const rows = [...by.entries()].map(([id, g]) => ({ id, c: cust(id), ...g })).filter(r => r.c).sort((x, y) => x.c.name.localeCompare(y.c.name));
+    $('#s-plt').innerHTML = rows.length ? `<div class="otw"><table class="otab rt plt"><thead><tr><th>Customer</th><th class="num">Plain</th><th class="num">Beef packing</th><th class="num">Chicken packing</th><th class="num">Priced</th><th>Last changed</th><th></th></tr></thead><tbody>
+      ${rows.map(r => `<tr class="click ${SET.plc == r.id ? 'sel' : ''}" data-plo="${r.id}"><td><b>${esc(r.c.name)}</b></td><td class="num">${r.l.plain || '—'}</td><td class="num">${r.l.beef || '—'}</td><td class="num">${r.l.chicken || '—'}</td>
+        <td class="num"><b>${r.n}</b> <span class="muted">of ${nAll}</span></td><td class="muted">${r.at ? new Date(r.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}</td><td class="num"><span class="link">Open →</span></td></tr>`).join('')}</tbody></table></div>`
+      : '<div class="pempty">No price lists yet – choose a customer below to start one.</div>';
+    document.querySelectorAll('[data-plo]').forEach(r => r.onclick = () => { SET.plc = Number(r.dataset.plo); setupScreen().then(() => $('#s-pl')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); });
+  });
   // customers
   $('#s-fc').oninput = () => { const t = $('#s-fc').value.trim().toLowerCase(); $('#s-tc').querySelectorAll('tr').forEach(r => r.style.display = r.dataset.name.includes(t) ? '' : 'none'); };
   $('#s-ac').onclick = () => safe(async () => {
