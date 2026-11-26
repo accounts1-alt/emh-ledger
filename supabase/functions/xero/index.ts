@@ -110,7 +110,7 @@ async function send(orderId: number, who: string) {
     for (const x of ils) {
       const it = item.get(x.item_id);
       const packing = it?.list === 'beef' || it?.list === 'chicken';
-      if (packing && x.price == null) continue;
+      if (packing && (x.price == null || !it?.xero_code)) continue;   // packing: optional – no price or not linked = left off the Xero invoice
       if (x.price == null || x.qty == null) throw new Fail(`${x.description}: fill in the ${x.qty == null ? 'quantity' : 'price'}`);
       if (!it?.xero_code) throw new Fail(`“${it?.name ?? x.description}” is not linked to a Xero item yet – link it in Xero links`);
       const desc = (it.xero_desc || it.xero_name || it.name || '').trim(), key = it.xero_code + '|' + desc.toLowerCase();
