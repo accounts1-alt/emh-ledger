@@ -475,6 +475,30 @@
   .rtable { padding: 6px 0; } .otab.rt { table-layout: auto; min-width: 0; } .otab.rt th, .otab.rt td { width: auto !important; } .otab.rt td.b { font-weight: 900; color: #1d2a5b; }
   .otab .num { text-align: right; } .otab tr.tfoot td { border-top: 2px solid #e6e9f4; font-weight: 900; background: #fafbff; }
   .plt tr.sel td { background: #eef1fd; } .plt { margin-top: 6px; } #s-pl { max-width: 760px; }
+  .inv .invh { display: flex; align-items: flex-start; gap: 18px; margin-bottom: 12px; } .invc { font-size: 26px; font-weight: 900; color: #1d2a5b; line-height: 1.15; }
+  .invt { margin-left: auto; text-align: right; } .invt span { display: block; font-size: 11px; font-weight: 900; color: #9aa1bd; text-transform: uppercase; letter-spacing: .06em; }
+  .invt b { display: block; font-size: 30px; font-weight: 900; color: #1d2a5b; line-height: 1.1; } .invmiss { display: block; font-style: normal; color: #e5484d; font-weight: 800; font-size: 13px; }
+  .invf { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; margin: 0 0 16px; padding: 10px 14px; background: #f7f8fd; border-radius: 14px; } .invf .sech { margin: 0; }
+  .invf .w { font-size: 13px; color: #6b7497; font-weight: 700; } .invf .w b { color: #1d2a5b; font-size: 15px; margin-left: 6px; font-weight: 900; }
+  .invtab { width: 100%; border-collapse: collapse; }
+  .invtab th { background: none; font-size: 11px; font-weight: 900; color: #9aa1bd; text-transform: uppercase; letter-spacing: .05em; padding: 6px 8px; border-bottom: 1px solid #eef0f7; }
+  .invtab td { padding: 7px 8px; border-bottom: 1px solid #f2f4fb; vertical-align: middle; font-size: 15px; white-space: nowrap; } .invtab td:first-child { white-space: normal; width: 40%; }
+  .invtab tr.bad td:first-child { box-shadow: inset 3px 0 0 #e5484d; padding-left: 12px; }
+  .invtab input { padding: 7px 9px; font-size: 15px; border-radius: 10px; width: 92px; text-align: right; font-weight: 800; }
+  .invtab tr.bad input:placeholder-shown { border-color: #f3b4b6; background: #fff6f6; } .invtab input::placeholder { color: #e5a0a3; font-weight: 700; }
+  .invtab select { width: auto; padding: 7px 6px; font-size: 14px; border-radius: 10px; font-weight: 700; }
+  .invtab .pfx { color: #9aa1bd; margin-right: 5px; font-weight: 700; } .invtab .sfx { margin: 0 0 0 5px; font-size: 13px; display: inline-block; min-width: 50px; text-align: left; }
+  .invtab td.b { font-weight: 900; color: #1d2a5b; min-width: 100px; } .invtab td.num { text-align: right; }
+  .invtab .del { border: 0; background: none; color: #c0c6db; font-size: 15px; padding: 4px 6px; border-radius: 8px; } .invtab .del:hover { color: #e5484d; background: #fdeeee; }
+  .invtab tfoot td { border: 0; padding-top: 12px; } .invtab tfoot input { width: 100%; text-align: left; border-style: dashed; font-weight: 600; }
+  .invfoot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid #eef0f7; position: sticky; bottom: 0; background: #fff; }
+  .invlinks { display: flex; gap: 16px; align-items: center; margin-right: auto; flex-wrap: wrap; } .invlinks .link { font-size: 14px; }
+  .omod { position: relative; padding-top: 18px; } .omod .omx { position: absolute; top: 18px; right: 18px; z-index: 2; } .omod .card { box-shadow: none; padding: 0; margin: 0; }
+  .omod #o-card > h2 { padding-right: 50px; }
+  .itasks { background: #fff8ec; border-radius: 14px; padding: 10px 12px; margin-bottom: 12px; } .itasks .dch { padding: 0 0 6px; } .itasks .otask { border-top-color: #f6e6c6; }
+  .invlinks { flex-direction: column; align-items: flex-start; gap: 4px; } .invfoot { flex-wrap: nowrap; } .invfoot .mbtn { white-space: nowrap; }
+  .omod { font-size: 15px; } .omod input, .omod select, .omod textarea { padding: 8px 11px; font-size: 15px; } .omod label { margin: 6px 0 3px; } .omod .osec { padding: 10px 12px; margin: 10px 0; }
+  .omod .tog button { padding: 7px 12px; min-width: 60px; } .omod .shr input { padding: 6px; } .omod .bcbox { font-size: 13px; } .omod #o-card > h2 { font-size: 22px; margin-bottom: 8px; }
   .hide { display: none !important; }
 </style>
 </head>
@@ -634,16 +658,25 @@ $('#pw').onclick = e => { e.preventDefault(); safe(async () => {
 }); };
 let cur = '';
 window.onhashchange = () => { const h = norm(location.hash.slice(1)); if (h && h !== cur && allowed(h)) go(h); };
+let OM = null, OM_BACK = 'orders';
+const isOrd = b => b === 'new' || b === 'order';
+const closeOrder = () => go(OM_BACK || 'orders');
 function go(tab) {
   tab = norm(tab);
   if (!allowed(tab)) return;
+  const base = tab.split('/')[0], prev = (cur || '').split('/')[0];
+  if (!isOrd(base) && OM) { const x = OM; OM = null; x.close(); }
+  if (isOrd(base) && !isOrd(prev)) OM_BACK = cur || 'orders';
   cur = tab; if (location.hash.slice(1) !== tab) location.hash = tab;
-  const base = tab.split('/')[0];
-  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === base || (b.dataset.tab === 'orders' && (base === 'new' || base === 'order'))));
-  clearInterval(P.timer);
+  const navOn = k => document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === k));
+  if (!isOrd(base)) { navOn(base); clearInterval(P.timer); }
   safe(async () => {
-    if (base === 'new') return orderScreen(null);
-    if (base === 'order') return orderScreen(Number(tab.split('/')[1]));
+    if (isOrd(base)) {   // the order form opens as a pop-up over the page you were on
+      if (!$('#view').children.length) { OM_BACK = 'orders'; navOn('orders'); await ordersScreen(); }
+      if (!OM) { OM = modal('<button class="mx omx" aria-label="Close">✕</button><div id="o-wrap"></div>'); OM.m.querySelector('.mbox').classList.add('wide', 'omod');
+        OM.m.onclick = e => { if (e.target === OM?.m) closeOrder(); }; OM.m.querySelector('.omx').onclick = closeOrder; }
+      return orderScreen(base === 'new' ? null : Number(tab.split('/')[1]));
+    }
     if (base === 'proc') return procScreen();
     if (base === 'inv') return invScreen();
     if (base === 'dash') return dashScreen();
@@ -753,7 +786,7 @@ async function copyOrder(fromId) {
 }
 function drawOrder() {
   const o = O, locked = o.status === 'invoiced';
-  $('#view').innerHTML = `<div class="card" id="o-card">
+  ($('#o-wrap') || $('#view')).innerHTML = `<div class="card" id="o-card">
     <h2>${o.id ? `Order #${o.id} <span class="badge s-${o.status}">${ST[o.status]}</span>` : 'New order'}</h2>
     ${o.id ? `<p class="muted">Entered by ${esc(uname(o.created_by))}${o.fulfilled_by ? ` · prepared by ${esc(uname(o.fulfilled_by))}` : ''}${o.invoiced_by ? ` · invoiced by ${esc(uname(o.invoiced_by))}${o.invoice_number ? ' (' + esc(o.invoice_number) + ')' : ''}` : ''}</p>` : ''}
     ${steps(o.id ? o.status : 'draft')}
@@ -803,10 +836,10 @@ function drawOrder() {
   $('#o-chick')?.addEventListener('click', () => { o.showChick = true; const n = o.notes; drawOrder(); $('#o-notes').value = n; $('#o-birds')?.focus(); });
   $('#o-save').onclick = saveOrder;
   if ($('#o-print')) $('#o-print').onclick = () => safe(() => printOrder(o.id));
-  if ($('#o-back')) $('#o-back').onclick = () => go('orders');
+  if ($('#o-back')) $('#o-back').onclick = closeOrder;
   if ($('#o-del-btn')) $('#o-del-btn').onclick = () => safe(async () => {
     if (!confirm('Delete order #' + o.id + '?')) return;
-    await q(sb.from('ord_orders').delete().eq('id', o.id)); toast('Order deleted'); go('orders');
+    await q(sb.from('ord_orders').delete().eq('id', o.id)); toast('Order deleted'); closeOrder();
   });
   if (o.id) safe(async () => {
     const log = await q(sb.from('ord_log').select('*').eq('order_id', o.id).order('at'));
@@ -906,7 +939,7 @@ function saveOrder() {
       lines: lines.map(l => ({ id: l.id, item_id: l.item_id, qty_ordered: l.qty_ordered, unit: l.unit, removed: !!l.removed })), keep_ids: keepOps.map(l => l.id) } }));
     await q(sb.rpc('ord_set_birds', { p_order: o.id || id, p_birds: Number(o.birds) || 0 }));
     toast(o.id ? 'Saved' : `Order #${id} saved`);
-    go('orders');
+    closeOrder();
   });
 }
 
@@ -941,7 +974,7 @@ async function procScreen() {
   const g = k => groups[k] ||= { orders: [], prep: [], shop: [] };
   g(today);
   orders.forEach(o => g(key(o.prep_date)).orders.push(o));
-  tasks.forEach(t => g(key(t.due_date))[t.kind].push(t));
+  tasks.filter(t => t.kind === 'prep' || t.kind === 'shop').forEach(t => g(key(t.due_date))[t.kind].push(t));
   // nothing outstanding from earlier days: no Late section (anything done from it shows under Today)
   const L = groups.late;
   if (L && !L.orders.some(o => o.status === 'new') && !L.prep.some(t => !t.done) && !L.shop.some(t => !t.done)) {
@@ -1431,7 +1464,7 @@ async function invScreen() {
   const status = { todo: 'fulfilled', missing: 'fulfilled', done: 'invoiced', waiting: 'new' }[I.tab];
   let qy = sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('status', status);
   qy = I.tab === 'done' ? qy.order('invoiced_at', { ascending: false }).limit(200) : qy.order(I.tab === 'waiting' ? 'prep_date' : 'delivery_date').order('id');
-  const [orders, cnt] = await Promise.all([q(qy), q(sb.from('ord_orders').select('status').in('status', ['fulfilled', 'new']))]);
+  const [orders, cnt, itasks] = await Promise.all([q(qy), q(sb.from('ord_orders').select('status').in('status', ['fulfilled', 'new'])), q(sb.from('ord_tasks').select('*').eq('kind', 'inv').eq('done', false).order('due_date').order('created_at'))]);
   orders.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position); delete o.ord_lines; });
   const ids = orders.flatMap(o => o.lines.map(l => l.id));
   const [prices, pk, ils, rl] = I.tab === 'waiting' ? [{}, {}, [], []] : await Promise.all([pricesFor(ids), packingFor(ids),
@@ -1468,12 +1501,18 @@ async function invScreen() {
       <button class="chip ${I.tab === 'waiting' ? 'on' : ''}" data-t="waiting">Not packed yet <span class="n">${nWait}</span></button>
       ${status === 'fulfilled' && waitSum ? `<span class="isum">Ready to invoice: <b>${money(waitSum)}</b></span>` : ''}</div>
     <div class="ilay ${I.tab === 'waiting' ? 'nopane' : ''}">
-      <div class="ilist card"><input class="fsearch" id="i-search" placeholder="🔍 Customer" value="${esc(I.search)}">
+      <div class="ilist card">${itasks.length || role === 'admin' ? `<div class="itasks"><div class="dch"><span>Invoicing tasks</span>${role === 'admin' ? '<button class="link" id="i-addt">+ Add</button>' : `<b>${itasks.length}</b>`}</div>
+          ${itasks.map(t => `<div class="otask"><button class="tick" data-it="${t.id}" aria-label="Tick"><span class="cbx"></span></button><span class="ttx" ${role === 'admin' ? `data-ite="${t.id}"` : ''}>${esc(t.text)}${!t.seen_at ? ' <span class="tg tg-new">new</span>' : ''}<i class="${t.due_date < today ? 'late-t' : ''}">${t.due_date === today ? 'Today' : ukDate(t.due_date)}</i></span></div>`).join('') || '<div class="pempty">Nothing open</div>'}</div>` : ''}
+        <input class="fsearch" id="i-search" placeholder="🔍 Customer" value="${esc(I.search)}">
         ${groups.length ? groups.map(g => `<div class="igrp"><div class="sech">${I.tab === 'done' ? 'Invoiced ' : I.tab === 'waiting' ? 'Prepare ' : 'Delivered '}${gname(g.k)}</div>${g.list.map(card).join('')}</div>`).join('')
           : `<div class="empty" style="padding:30px 0">${I.tab === 'todo' ? 'Nothing to invoice 👍' : I.tab === 'missing' ? 'No prices missing 👍' : 'Nothing here'}</div>`}</div>
       ${I.tab === 'waiting' ? '' : '<div id="i-pane" class="ipanew"><div class="ipempty">Choose an order on the left</div></div>'}
     </div>`;
   document.querySelectorAll('.fbar [data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; I.sel = null; invScreen(); });
+  document.querySelectorAll('[data-it]').forEach(x => x.onclick = () => safe(async () => { await q(sb.rpc('ord_task_tick', { p_id: Number(x.dataset.it), p_done: true })); toast('Ticked off'); invScreen(); }));
+  document.querySelectorAll('[data-ite]').forEach(x => x.onclick = () => taskModal('inv', itasks.find(t => t.id == x.dataset.ite)));
+  if ($('#i-addt')) $('#i-addt').onclick = () => taskModal('inv');
+  if (role === 'invoicing') itasks.filter(t => !t.seen_at).forEach(t => sb.rpc('ord_mark_seen', { p_kind: 'task', p_id: t.id }).then(() => {}));
   const isf = () => { const t = I.search.trim().toLowerCase();
     document.querySelectorAll('.irow2').forEach(c => c.style.display = !t || c.dataset.name.includes(t) ? '' : 'none');
     document.querySelectorAll('.igrp').forEach(g => g.style.display = [...g.querySelectorAll('.irow2')].some(c => c.style.display !== 'none') ? '' : 'none'); };
@@ -1510,37 +1549,38 @@ async function invOpen(o) {
   let lines = saved.length ? saved.map(x => ({ ...x, qty: x.qty != null ? qf(x.qty) : '', price: x.price != null ? qf(x.price) : '' })) : fromOrder();
   const lt = x => isNum(x.qty) && isNum(x.price) ? Math.round(Number(x.qty) * Number(x.price) * 100) / 100 : null;
   const tot = () => lines.reduce((a, x) => a + (lt(x) ?? 0), 0);
-  const { m, close } = modal(`
-    <div class="mh"><div><div class="mt">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivered ${ukDate(o.delivery_date)}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}</div></div><button class="mx" aria-label="Close">✕</button></div>
+  const { m, close } = modal(`<div class="inv">
+    <div class="invh"><div><div class="invc">${esc(cust(o.customer_id)?.name)}</div><div class="ms">Order #${o.id} · delivered ${ukDate(o.delivery_date)}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}</div></div>
+      <div class="invt"><span>Invoice total</span><b data-tot></b><i class="invmiss" data-miss></i></div><button class="mx" aria-label="Close">✕</button></div>
     ${steps(o.status === 'new' ? 'fulfilled' : o.status)}
-    ${figs.length ? `<div class="figs">${figs.map(([t, v]) => `<span><i>${esc(t)}</i><b>${qf(v)} kg</b></span>`).join('')}</div>` : ''}
+    ${figs.length ? `<div class="invf"><span class="sech">Weights</span>${figs.map(([t, v]) => `<span class="w">${esc(t)}<b>${qf(v)} kg</b></span>`).join('')}</div>` : ''}
     <datalist id="inv-figs">${figs.map(([t, v]) => `<option value="${qf(v)}">${esc(t)}</option>`).join('')}</datalist>
-    <div class="ilr ih"><span>Line</span><span>Qty</span><span>Price</span><span class="num">Total</span></div>
-    <div data-il></div>
-    ${edit ? `<div class="addrow" style="margin-top:8px"><div data-addl></div></div>
-      <div class="actions"><button class="link" data-redo>↻ Start again from the order and price list</button></div>` : ''}
-    <div class="total" data-tot></div>
-    <div class="mf">${edit ? `
-      ${toXero ? '<button class="link" data-manual style="margin-right:auto">mark invoiced without Xero</button>' : '<input placeholder="Invoice no. (optional)" data-inv style="width:190px;margin-right:auto">'}
-      <button class="mbtn ghost" data-sp>Save</button>
-      <button class="mbtn go" data-go>${toXero ? 'Check & send to Xero' : 'Mark invoiced'}</button>`
-      : `${o.xero_invoice_id ? '<span class="muted" style="margin-right:auto">Sent to Xero as a draft</span>' : ''}<button class="mbtn ghost" data-un>Undo invoiced</button><button class="mbtn go" data-c>Close</button>`}</div>`);
+    <table class="invtab"><thead><tr><th>Item</th><th class="num">Qty</th><th>Unit</th><th class="num">Price</th><th class="num">Total</th><th></th></tr></thead>
+      <tbody data-il></tbody>${edit ? '<tfoot><tr><td colspan="6"><div data-addl></div></td></tr></tfoot>' : ''}</table>
+    <div class="invfoot"><div class="invlinks">${edit ? `<button class="link" data-redo>↻ Start again from the order</button>
+        ${toXero ? '<button class="link" data-manual>Mark invoiced without Xero</button>' : '<input placeholder="Invoice no. (optional)" data-inv style="width:200px">'}`
+        : (o.xero_invoice_id ? '<span class="muted">Sent to Xero as a draft</span>' : '')}</div>
+      ${edit ? `<button class="mbtn ghost" data-sp>Save</button><button class="mbtn go" data-go>${toXero ? 'Check & send to Xero →' : 'Mark invoiced'}</button>`
+        : '<button class="mbtn ghost" data-un>Undo invoiced</button><button class="mbtn go" data-c>Close</button>'}</div></div>`);
   m.querySelector('.mbox').classList.add('wide');
   const box = m.querySelector('[data-il]');
-  const perSel = (v, i) => `<select class="iper" data-u="${i}">${[['kg', '/kg'], ['pack', '/pack'], ['unit', '/unit']].map(([k, t]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  const unitSel = (v, i) => `<select data-u="${i}">${[['kg', 'kg'], ['pack', 'packets'], ['unit', 'units']].map(([k, t]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
   const unitW = u => u === 'kg' ? 'kg' : u === 'pack' ? 'packets' : 'units';
+  const perW = u => u === 'kg' ? '/kg' : u === 'pack' ? '/packet' : '/unit';
+  const sums = () => { m.querySelector('[data-tot]').textContent = money(tot()); const n = lines.filter(x => !isNum(x.qty) || !isNum(x.price)).length;
+    m.querySelector('[data-miss]').textContent = edit && n ? `${n} line${n > 1 ? 's' : ''} still need${n > 1 ? '' : 's'} a ${lines.some(x => !isNum(x.price)) ? 'price' : 'quantity'}` : ''; };
   const draw = () => {
     box.innerHTML = lines.map((x, i) => { const bad = !isNum(x.qty) || !isNum(x.price);
-      return `<div class="ilr ${bad && edit ? 'bad' : ''}"><span><b>${esc(x.description || item(x.item_id)?.name || '')}</b>${edit ? ` <button class="link" data-del="${i}" title="Remove line">✕</button>` : ''}
-          ${edit && !isNum(x.price) ? '<div class="why">no price in this customer’s price list</div>' : ''}</span>
-        <span>${edit ? `<input class="qin" data-q="${i}" inputmode="decimal" list="inv-figs" value="${esc(x.qty)}">` : esc(x.qty)} <span class="muted">${unitW(x.unit)}</span></span>
-        <span>${edit ? `<span class="ipw">£ <input class="price" data-p="${i}" inputmode="decimal" value="${esc(x.price)}"></span>${perSel(x.unit, i)}` : money(x.price) + '/' + (x.unit === 'kg' ? 'kg' : x.unit)}</span>
-        <span class="num" data-lt="${i}">${money(lt(x))}</span></div>`; }).join('') || '<p class="muted">No lines.</p>';
-    m.querySelector('[data-tot]').textContent = 'Total: ' + money(tot());
+      return `<tr class="${bad && edit ? 'bad' : ''}"><td><b>${esc(x.description || item(x.item_id)?.name || '')}</b></td>
+        <td class="num">${edit ? `<input class="qin" data-q="${i}" inputmode="decimal" list="inv-figs" placeholder="qty" value="${esc(x.qty)}">` : esc(x.qty)}</td>
+        <td>${edit ? unitSel(x.unit, i) : unitW(x.unit)}</td>
+        <td class="num">${edit ? `<span class="pfx">£</span><input class="price" data-p="${i}" inputmode="decimal" placeholder="price?" value="${esc(x.price)}"><span class="pfx sfx">${perW(x.unit)}</span>` : money(x.price) + ' ' + perW(x.unit)}</td>
+        <td class="num b" data-lt="${i}">${money(lt(x))}</td><td>${edit ? `<button class="del" data-del="${i}" title="Remove line">✕</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="6" class="muted">No lines yet.</td></tr>';
+    sums();
     box.querySelectorAll('[data-q],[data-p]').forEach(inp => inp.oninput = () => {
       const i = inp.dataset.q ?? inp.dataset.p; lines[i][inp.dataset.q != null ? 'qty' : 'price'] = inp.value.trim();
-      m.querySelector(`[data-lt="${i}"]`).textContent = money(lt(lines[i])); m.querySelector('[data-tot]').textContent = 'Total: ' + money(tot());
-      inp.closest('.ilr').classList.toggle('bad', !isNum(lines[i].qty) || !isNum(lines[i].price));
+      m.querySelector(`[data-lt="${i}"]`).textContent = money(lt(lines[i])); sums();
+      inp.closest('tr').classList.toggle('bad', !isNum(lines[i].qty) || !isNum(lines[i].price));
     });
     box.querySelectorAll('[data-u]').forEach(sel => sel.onchange = () => { lines[sel.dataset.u].unit = sel.value; draw(); });
     box.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { lines.splice(+b.dataset.del, 1); draw(); });
@@ -1667,11 +1707,11 @@ async function linksScreen() {
 
 /* ================= ADMIN: home ================= */
 function taskModal(kind, t) {
-  const label = kind === 'prep' ? 'Preparation task' : 'Shop order';
+  const label = kind === 'prep' ? 'Preparation task' : kind === 'inv' ? 'Invoicing task' : 'Shop order';
   const { m, close } = modal(`
     <div class="mh"><div class="mt">${t ? 'Edit ' + label.toLowerCase() : 'New ' + label.toLowerCase()}</div><button class="mx" aria-label="Close">✕</button></div>
-    <label>${kind === 'prep' ? 'What needs doing' : 'What the shop needs'}</label>
-    <input id="tk-text" value="${esc(t?.text || '')}" placeholder="${kind === 'prep' ? 'e.g. Marinate 20 kg schnitzel for Thursday' : 'e.g. 30 kg mince, 15 kg chicken breast'}">
+    <label>${kind === 'shop' ? 'What the shop needs' : 'What needs doing'}</label>
+    <input id="tk-text" value="${esc(t?.text || '')}" placeholder="${kind === 'prep' ? 'e.g. Marinate 20 kg schnitzel for Thursday' : kind === 'inv' ? 'e.g. Credit K Market 2 kg mince from last week' : 'e.g. 30 kg mince, 15 kg chicken breast'}">
     <label>Date</label><input type="date" id="tk-date" value="${esc(t?.due_date || isoDay(0))}" style="width:auto">
     <div class="mf">${t ? '<button class="mbtn ghost" data-del style="margin-right:auto;color:#e5484d">Delete</button>' : ''}<button class="mbtn ghost" data-c>Cancel</button><button class="mbtn go" data-s>Save</button></div>`);
   const inp = m.querySelector('#tk-text'); setTimeout(() => inp.focus(), 50);
@@ -1715,7 +1755,7 @@ async function dashScreen() {
   const [open, done, tasks, hist] = await Promise.all([
     q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').neq('status', 'invoiced').order('prep_date').order('id')),
     q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('status', 'invoiced').gte('invoiced_at', since7).order('invoiced_at', { ascending: false }).limit(30)),
-    role === 'invoicing' ? [] : q(sb.from('ord_tasks').select('id, kind, due_date').eq('done', false)),
+    q(sb.from('ord_tasks').select('id, kind, due_date').eq('done', false)),
     q(sb.from('ord_orders').select('id, delivery_date, status, birds').gte('delivery_date', from8)),
   ]);
   [...open, ...done].forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position); delete o.ord_lines; });
@@ -1755,7 +1795,7 @@ async function dashScreen() {
       ${kpi(todayN, 'To pack today', late ? `${late} late` : 'none late', late ? 'bad' : '')}
       ${kpi(toInv.length, 'To invoice')}
       ${money0 ? kpi(short(thisWk), 'Invoiced this week', lastWk ? `${thisWk >= lastWk ? '▲' : '▼'} last week ${short(lastWk)}` : '') : kpi(tasks.filter(t => t.kind === 'prep').length, 'Prep tasks open')}
-      ${money0 ? kpi(birdsWk.toLocaleString('en-GB'), 'Chickens this week') : kpi(tasks.filter(t => t.kind === 'shop').length, 'Shop orders open')}
+      ${role === 'invoicing' ? kpi(tasks.filter(t => t.kind === 'inv').length, 'Invoicing tasks', 'open') : money0 ? kpi(birdsWk.toLocaleString('en-GB'), 'Chickens this week') : kpi(tasks.filter(t => t.kind === 'shop').length, 'Shop orders open')}
     </div>
     <div class="charts">
       ${money0 ? chart('Invoiced per week', weeks, weeks.map(w => perWeek[w]), wkLab, short, weekStart(0)) : ''}
@@ -1790,16 +1830,17 @@ async function ordersScreen() {
   for (let i = 0; i < priced.length; i += 150) (await q(sb.from('ord_invoice_lines').select('order_id, qty, price').in('order_id', priced.slice(i, i + 150).map(o => o.id)))).forEach(x => tot[x.order_id] = (tot[x.order_id] || 0) + lineAmt(x));
   $('#view').innerHTML = `
     <div class="fbar">
-      <button class="big" id="h-new">+ New order</button><button class="btn" id="h-prep">+ Prep task</button><button class="btn" id="h-shop">+ Shop order</button>
+      <button class="big" id="h-new">+ New order</button><button class="btn" id="h-prep">+ Prep task</button><button class="btn" id="h-shop">+ Shop order</button><button class="btn" id="h-invt">+ Invoicing task</button>
       <input class="fsearch grow" id="h-search" placeholder="🔍 Customer, order # or item" value="${esc(H.search)}"></div>
     <div class="olay"><div id="h-tabs"></div>
       <aside class="oside">
         <div class="card"><div class="dch"><span>Prep tasks</span><b>${tasks.filter(t => t.kind === 'prep').length}</b></div><div id="h-tp"></div></div>
         <div class="card"><div class="dch"><span>Shop orders</span><b>${tasks.filter(t => t.kind === 'shop').length}</b></div><div id="h-ts"></div></div>
+        <div class="card"><div class="dch"><span>Invoicing tasks</span><b>${tasks.filter(t => t.kind === 'inv').length}</b></div><div id="h-ti"></div></div>
       </aside></div>`;
   const taskList = k => { const L = tasks.filter(t => t.kind === k);
     return L.length ? L.map(t => `<div class="otask"><button class="tick" data-t="${t.id}" aria-label="Tick"><span class="cbx"></span></button><span class="ttx" data-te="${t.id}">${esc(t.text)}<i class="${t.due_date < today ? 'late-t' : ''}">${t.due_date === today ? 'Today' : ukDate(t.due_date)}</i></span></div>`).join('') : '<div class="pempty">Nothing open</div>'; };
-  $('#h-tp').innerHTML = taskList('prep'); $('#h-ts').innerHTML = taskList('shop');
+  $('#h-tp').innerHTML = taskList('prep'); $('#h-ts').innerHTML = taskList('shop'); $('#h-ti').innerHTML = taskList('inv');
   const match = o => { const t = H.search.trim().toLowerCase().replace(/^#/, ''); if (!t) return true;
     return String(o.id) === t || (cust(o.customer_id)?.name || '').toLowerCase().includes(t) || o.lines.some(l => (item(l.item_id)?.name || '').toLowerCase().includes(t)); };
   const items = o => o.lines.map(l => `${esc(item(l.item_id)?.name)} ${qf(o.status === 'new' || l.qty_sent == null ? l.qty_ordered : (l.qty_net ?? l.qty_sent))}`).join(', ');
@@ -1821,7 +1862,7 @@ async function ordersScreen() {
   };
   draw();
   $('#h-new').onclick = () => go('new');
-  $('#h-prep').onclick = () => taskModal('prep'); $('#h-shop').onclick = () => taskModal('shop');
+  $('#h-prep').onclick = () => taskModal('prep'); $('#h-shop').onclick = () => taskModal('shop'); $('#h-invt').onclick = () => taskModal('inv');
   const si = $('#h-search'); si.oninput = () => { H.search = si.value; draw(); };
   document.querySelectorAll('.otask .tick').forEach(x => x.onclick = () => safe(async () => { await q(sb.rpc('ord_task_tick', { p_id: Number(x.dataset.t), p_done: true })); toast('Ticked off'); ordersScreen(); }));
   document.querySelectorAll('[data-te]').forEach(x => x.onclick = () => { const t = tasks.find(y => y.id == x.dataset.te); taskModal(t.kind, t); });
