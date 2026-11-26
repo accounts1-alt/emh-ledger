@@ -1278,7 +1278,6 @@ async function openWeigh(o) {
     <div class="lbx hide" data-lbx></div>
     <div class="wl"></div>
     <div class="wpgs"></div>
-    <div class="wtot"></div>
     <div class="bcbox hide" data-wbc></div>
     <div class="addrow"><div class="ac"></div></div>
     <div class="mf"><button class="mbtn ghost" data-c>Cancel</button><button class="mbtn ghost" data-sv>Save</button><button class="mbtn go" data-d>Done</button></div>`);
@@ -1292,7 +1291,6 @@ async function openWeigh(o) {
   const totals = () => {
     const live = lines.filter(l => !l.mode), sum = f => Math.round(live.filter(f).reduce((a, l) => a + netOf(l), 0) * 1000) / 1000;
     const all = sum(() => true), b = sum(l => listOf(l.newItem) === 'beef'), c = sum(l => listOf(l.newItem) === 'chicken');
-    m.querySelector('.wtot').innerHTML = `Total sent: <b>${qf(all)} kg</b>${b && b !== all ? ` · beef packing ${qf(b)} kg` : ''}${c && c !== all ? ` · chicken packing ${qf(c)} kg` : ''}`;
     const pkt = m.querySelector('[data-pkt]');
     if (pkt) pkt.innerHTML = `<span class="sech">Packing weights</span>${hasBeef ? `<span>Beef packing <b>${qf(b)} kg</b></span>` : ''}${hasChick ? `<span>Chicken packing <b>${qf(c)} kg</b></span>` : ''}`;
     if (hasChick) { const bc = m.querySelector('[data-wbc]'); bc.classList.remove('hide');
@@ -1557,7 +1555,7 @@ async function invOpen(o) {
   const kgOf = l => l.qty_net != null ? Number(l.qty_net) : null;
   const r3 = v => Math.round(v * 1000) / 1000;
   const sumKg = f => r3(live.filter(f).reduce((a, l) => a + (kgOf(l) || 0), 0));
-  const figs = [['Total sent', sumKg(() => true)], ['Beef packing', sumKg(l => listOf(l.item_id) === 'beef')], ['Chicken packing', sumKg(l => listOf(l.item_id) === 'chicken')],
+  const figs = [['Beef packing', sumKg(l => listOf(l.item_id) === 'beef')], ['Chicken packing', sumKg(l => listOf(l.item_id) === 'chicken')],
     ['Beef weight', o.beef_kg != null ? Number(o.beef_kg) : 0], [`Chickens${o.birds ? ` (${qf(o.birds)})` : ''} weighed`, o.bird_kg != null ? Number(o.bird_kg) : 0]].filter(([, v]) => v);
   const fromOrder = () => live.map(l => {
     const r = pl.get(l.item_id), per = r?.per || (listOf(l.item_id) === 'chicken' ? 'pack' : 'kg');
