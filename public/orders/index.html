@@ -428,6 +428,23 @@
   .dcard:hover { box-shadow: 0 6px 16px rgba(29,42,91,.1); } .dcard.late { box-shadow: inset 4px 0 0 #e5484d, 0 1px 2px rgba(29,42,91,.06); }
   .dn { font-weight: 900; font-size: 16px; color: #1d2a5b; } .ds { font-size: 13px; color: #6b7497; font-weight: 600; }
   .c3 .dcard { background: #f7f8fd; } .c3 .dn { color: #14a073; }
+  main { max-width: none; padding: 24px 32px 70px; }
+  .olay { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+  @media (max-width: 1100px) { .olay { grid-template-columns: 1fr; } }
+  .oside { position: sticky; top: 76px; display: grid; gap: 14px; } .oside .card { margin: 0; padding: 14px 16px; } .oside .dch { padding: 0 0 8px; }
+  .otask { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid #eef0f7; } .otask:first-of-type { border-top: 0; }
+  .otask .tick { border: 0; background: none; padding: 0; } .otask .ttx { cursor: pointer; font-size: 15px; flex: 1; } .otask i { display: block; font-style: normal; font-size: 12px; color: #6b7497; font-weight: 700; }
+  .osec2 { padding: 16px 0 6px; } .osh2 { display: flex; align-items: center; gap: 10px; padding: 0 20px 10px; flex-wrap: wrap; } .osh2 b { font-size: 18px; font-weight: 900; color: #1d2a5b; }
+  .osh2 .cnt { background: #eef1fa; border-radius: 99px; padding: 2px 10px; font-weight: 800; font-size: 13px; } .osh2 .grow { flex: 1; } .osec2 .pempty { padding: 6px 20px 14px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; } .dot.new { background: #ff6b5b; } .dot.ful { background: #3346b5; } .dot.inv { background: #14a073; }
+  .chip.sm { padding: 5px 11px; font-size: 13px; }
+  .otw { overflow-x: auto; }
+  .otab th { background: none; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; color: #9aa1bd; border-bottom: 1px solid #eef0f7; padding: 8px 12px; white-space: nowrap; }
+  .otab td { padding: 11px 12px; border-bottom: 1px solid #f2f4fb; font-size: 15px; white-space: nowrap; } .otab th:first-child, .otab td:first-child { padding-left: 20px; } .otab th:last-child, .otab td:last-child { padding-right: 20px; }
+  .otab tr.click:hover { background: #f7f8fd; } .otab tr.late td:first-child { box-shadow: inset 4px 0 0 #e5484d; } .otab tbody tr:last-child td { border-bottom: 0; }
+  .otab td.oitems { white-space: normal; color: #6b7497; font-size: 13px; min-width: 260px; max-width: 520px; }
+  .otab { table-layout: fixed; min-width: 900px; } .otab th:nth-child(1) { width: 84px; } .otab th:nth-child(2) { width: 16%; } .otab th:nth-child(3), .otab th:nth-child(4) { width: 120px; }
+  .otab th:nth-child(6) { width: 96px; } .otab th:nth-child(7) { width: 116px; } .otab th:nth-child(8) { width: 130px; } .otab td { overflow: hidden; text-overflow: ellipsis; } .otab td.oitems { min-width: 0; max-width: none; }
   .hide { display: none !important; }
 </style>
 </head>
@@ -1711,38 +1728,55 @@ const rangeOf = r => r === 'week' ? [weekStart(0), addDays(weekStart(0), 6)] : r
   : r === 'month' ? [monthStart(0), addDays(monthStart(1), -1)] : r === 'lmonth' ? [monthStart(-1), addDays(monthStart(0), -1)] : [null, null];
 async function ordersScreen() {
   const today = isoDay(0);
-  let qy = sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)');
-  if (H.f === 'open') qy = qy.neq('status', 'invoiced'); else if (H.f !== 'all') qy = qy.eq('status', H.f);
-  const [a, b] = rangeOf(H.range); if (a) qy = qy.gte('prep_date', a).lte('prep_date', b);
-  const newest = H.f === 'invoiced' || H.f === 'all';
-  qy = qy.order('prep_date', { ascending: !newest }).order('id', { ascending: !newest }).limit(400);
-  const [orders, counts] = await Promise.all([q(qy), q(sb.from('ord_orders').select('status').neq('status', 'invoiced'))]);
-  orders.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((a, b) => a.position - b.position); delete o.ord_lines; });
-  const n = s => counts.filter(c => c.status === s).length;
-  const chip = (k, t, on, attr) => `<button class="chip ${on ? 'on' : ''}" ${attr}="${k}">${t}</button>`;
+  const [a, b] = rangeOf(H.range);
+  let qi = sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').eq('status', 'invoiced');
+  qi = a ? qi.gte('delivery_date', a).lte('delivery_date', b) : qi;
+  const [open, invd, tasks] = await Promise.all([
+    q(sb.from('ord_orders').select('*, ord_lines!ord_lines_order_id_fkey(*)').neq('status', 'invoiced').order('prep_date').order('id')),
+    q(qi.order('invoiced_at', { ascending: false }).limit(a ? 1000 : 60)),
+    q(sb.from('ord_tasks').select('*').eq('done', false).order('due_date').order('created_at')),
+  ]);
+  const all = [...open, ...invd];
+  all.forEach(o => { o.lines = o.ord_lines.filter(l => !l.removed).sort((x, y) => x.position - y.position); delete o.ord_lines; });
+  const tot = {}, priced = all.filter(o => o.status !== 'new');
+  for (let i = 0; i < priced.length; i += 150) (await q(sb.from('ord_invoice_lines').select('order_id, qty, price').in('order_id', priced.slice(i, i + 150).map(o => o.id)))).forEach(x => tot[x.order_id] = (tot[x.order_id] || 0) + lineAmt(x));
   $('#view').innerHTML = `
-    <div class="fbar"><input class="fsearch" id="h-search" placeholder="🔍 Customer or order #" value="${esc(H.search)}">
-      ${[['open', 'Open'], ['new', `To pack <span class="n">${n('new')}</span>`], ['fulfilled', `To invoice <span class="n">${n('fulfilled')}</span>`], ['invoiced', 'Invoiced'], ['all', 'All']].map(([k, t]) => chip(k, t, H.f === k, 'data-f')).join('')}
-      <button class="big grow" id="h-new">+ New order</button></div>
-    <div class="fbar" style="margin-top:-8px">${[['all', 'Any date'], ['week', 'This week'], ['lweek', 'Last week'], ['month', 'This month'], ['lmonth', 'Last month']].map(([k, t]) => chip(k, t, H.range === k, 'data-r')).join('')}</div>
-    <div id="h-list"></div>`;
+    <div class="fbar">
+      <button class="big" id="h-new">+ New order</button><button class="btn" id="h-prep">+ Prep task</button><button class="btn" id="h-shop">+ Shop order</button>
+      <input class="fsearch grow" id="h-search" placeholder="🔍 Customer, order # or item" value="${esc(H.search)}"></div>
+    <div class="olay"><div id="h-tabs"></div>
+      <aside class="oside">
+        <div class="card"><div class="dch"><span>Prep tasks</span><b>${tasks.filter(t => t.kind === 'prep').length}</b></div><div id="h-tp"></div></div>
+        <div class="card"><div class="dch"><span>Shop orders</span><b>${tasks.filter(t => t.kind === 'shop').length}</b></div><div id="h-ts"></div></div>
+      </aside></div>`;
+  const taskList = k => { const L = tasks.filter(t => t.kind === k);
+    return L.length ? L.map(t => `<div class="otask"><button class="tick" data-t="${t.id}" aria-label="Tick"><span class="cbx"></span></button><span class="ttx" data-te="${t.id}">${esc(t.text)}<i class="${t.due_date < today ? 'late-t' : ''}">${t.due_date === today ? 'Today' : ukDate(t.due_date)}</i></span></div>`).join('') : '<div class="pempty">Nothing open</div>'; };
+  $('#h-tp').innerHTML = taskList('prep'); $('#h-ts').innerHTML = taskList('shop');
+  const match = o => { const t = H.search.trim().toLowerCase().replace(/^#/, ''); if (!t) return true;
+    return String(o.id) === t || (cust(o.customer_id)?.name || '').toLowerCase().includes(t) || o.lines.some(l => (item(l.item_id)?.name || '').toLowerCase().includes(t)); };
+  const items = o => o.lines.map(l => `${esc(item(l.item_id)?.name)} ${qf(o.status === 'new' || l.qty_sent == null ? l.qty_ordered : (l.qty_net ?? l.qty_sent))}`).join(', ');
+  const row = o => `<tr class="click ${o.status === 'new' && o.prep_date < today ? 'late' : ''}" data-o="${o.id}">
+      <td class="muted">#${o.id}</td><td><b>${esc(cust(o.customer_id)?.name)}</b></td>
+      <td class="${o.status === 'new' && o.prep_date < today ? 'late-t' : ''}">${o.prep_date === today ? 'Today' : ukDate(o.prep_date)}</td><td>${ukDate(o.delivery_date)}</td>
+      <td class="oitems">${items(o) || '—'}</td><td class="num">${o.birds ? qf(o.birds) : ''}</td>
+      <td class="num">${tot[o.id] ? money(tot[o.id]) : ''}</td><td class="muted">${o.invoice_number ? esc(o.invoice_number) : esc(uname(o.created_by))}</td></tr>`;
+  const sec = (key, title, list, extra) => { const L = list.filter(match);
+    return `<section class="osec2 card"><div class="osh2"><span class="dot ${key}"></span><b>${title}</b><span class="cnt">${L.length}</span>${extra || ''}</div>
+      ${L.length ? `<div class="otw"><table class="otab"><thead><tr><th>#</th><th>Customer</th><th>Prepare</th><th>Delivery</th><th>Items</th><th class="num">Chickens</th><th class="num">Total</th><th>${key === 'inv' ? 'Invoice' : 'Entered by'}</th></tr></thead>
+      <tbody>${L.map(row).join('')}</tbody></table></div>` : `<div class="pempty">${H.search ? 'Nothing matches' : 'None'}</div>`}</section>`; };
   const draw = () => {
-    const term = H.search.trim().toLowerCase().replace(/^#/, '');
-    const shown = orders.filter(o => !term || String(o.id) === term || (cust(o.customer_id)?.name || '').toLowerCase().includes(term));
-    const gk = o => !newest && o.status === 'new' && o.prep_date < today ? 'late' : o.prep_date;
-    const groups = []; shown.forEach(o => { const k = gk(o); let g = groups.find(x => x.k === k); if (!g) groups.push(g = { k, list: [] }); g.list.push(o); });
-    const gname = k => k === 'late' ? 'Late' : (k === today ? 'Today · ' : k === isoDay(1) ? 'Tomorrow · ' : k === isoDay(-1) ? 'Yesterday · ' : '') + ukDate(k);
-    $('#h-list').innerHTML = groups.length ? groups.map(g => `<div class="sech ${g.k === 'late' ? 'late-t' : ''}" style="margin-top:18px">${gname(g.k)}</div><div class="olist">` + g.list.map(o => `
-      <div class="orow2" data-o="${o.id}"><span class="muted">#${o.id}</span><span style="min-width:0"><b>${esc(cust(o.customer_id)?.name)}</b><div class="muted hit">${o.birds ? qf(o.birds) + ' chickens · ' : ''}${itemsShort(o, o.status !== 'new')}</div></span>
-        <span class="muted">${o.invoice_number ? esc(o.invoice_number) : 'Delivery ' + ukDate(o.delivery_date)}</span><span><span class="badge s-${o.status}">${ST[o.status]}</span></span></div>`).join('') + '</div>').join('')
-      : `<div class="empty">${term ? 'No orders match' : 'No orders'}</div>`;
-    document.querySelectorAll('.orow2').forEach(r => r.onclick = () => go('order/' + r.dataset.o));
+    $('#h-tabs').innerHTML = sec('new', 'To process', open.filter(o => o.status === 'new'))
+      + sec('ful', 'To invoice', open.filter(o => o.status === 'fulfilled'))
+      + sec('inv', 'Invoiced', invd, `<span class="grow"></span>${[['all', 'Latest'], ['week', 'This week'], ['lweek', 'Last week'], ['month', 'This month'], ['lmonth', 'Last month']].map(([k, t]) => `<button class="chip sm ${H.range === k ? 'on' : ''}" data-r="${k}">${t}</button>`).join('')}`);
+    document.querySelectorAll('tr[data-o]').forEach(r => r.onclick = () => go('order/' + r.dataset.o));
+    document.querySelectorAll('[data-r]').forEach(x => x.onclick = () => { H.range = x.dataset.r; ordersScreen(); });
   };
   draw();
   $('#h-new').onclick = () => go('new');
-  document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { H.f = b.dataset.f; ordersScreen(); });
-  document.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { H.range = b.dataset.r; ordersScreen(); });
+  $('#h-prep').onclick = () => taskModal('prep'); $('#h-shop').onclick = () => taskModal('shop');
   const si = $('#h-search'); si.oninput = () => { H.search = si.value; draw(); };
+  document.querySelectorAll('.otask .tick').forEach(x => x.onclick = () => safe(async () => { await q(sb.rpc('ord_task_tick', { p_id: Number(x.dataset.t), p_done: true })); toast('Ticked off'); ordersScreen(); }));
+  document.querySelectorAll('[data-te]').forEach(x => x.onclick = () => { const t = tasks.find(y => y.id == x.dataset.te); taskModal(t.kind, t); });
 }
 
 /* ================= REPORTING ================= */
