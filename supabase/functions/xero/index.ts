@@ -106,7 +106,7 @@ async function send(orderId: number, who: string) {
   // the same Xero item with a different description is its own line. Packing lines with no price are not charged.
   let LineItems: Record<string, unknown>[];
   if (ils?.length) {
-    const groups = new Map<string, { code: string; name: string; tax: string; acct: string; kg: number; total: number; allKg: boolean }>();
+    const groups = new Map<string, { code: string; name: string; tax: string; acct: string; qty: number; total: number; units: Set<string> }>();
     for (const x of ils) {
       const it = item.get(x.item_id);
       const packing = it?.list === 'beef' || it?.list === 'chicken';
@@ -114,16 +114,17 @@ async function send(orderId: number, who: string) {
       if (x.price == null || x.qty == null) throw new Fail(`${x.description}: fill in the ${x.qty == null ? 'quantity' : 'price'}`);
       if (!it?.xero_code) throw new Fail(`“${it?.name ?? x.description}” is not linked to a Xero item yet – link it in Xero links`);
       const desc = (it.xero_desc || it.xero_name || it.name || '').trim(), key = it.xero_code + '|' + desc.toLowerCase();
-      const g = groups.get(key) ?? { code: it.xero_code, name: desc, tax: it.xero_tax_type || taxType, acct: it.xero_account || SALES_ACCOUNT, kg: 0, total: 0, allKg: true };
+      const g = groups.get(key) ?? { code: it.xero_code, name: desc, tax: it.xero_tax_type || taxType, acct: it.xero_account || SALES_ACCOUNT, qty: 0, total: 0, units: new Set<string>() };
       g.total += Math.round(Number(x.qty) * Number(x.price) * 100) / 100;
-      if (x.unit === 'kg') g.kg += Number(x.qty); else g.allKg = false;
+      g.qty += Number(x.qty); g.units.add(x.unit || 'kg');
       groups.set(key, g);
     }
     if (!groups.size) throw new Fail('Nothing to charge on this invoice – fill in at least one price');
     LineItems = [...groups.values()].map(g => {
-      const total = Math.round(g.total * 100) / 100, kg = Math.round(g.kg * 1000) / 1000;
-      const byKg = g.allKg && kg > 0;
-      return { ItemCode: g.code, Description: `${g.name}${kg ? ` – ${kg} kg` : ''}`, Quantity: byKg ? kg : 1, UnitAmount: byKg ? Math.round(total / kg * 10000) / 10000 : total,
+      // one unit on every line (all kg, or all units/packets): Quantity = how many, UnitAmount = price each; mixed units: 1 × total
+      const total = Math.round(g.total * 100) / 100, qty = Math.round(g.qty * 1000) / 1000;
+      const one = g.units.size === 1 && qty > 0, u = [...g.units][0];
+      return { ItemCode: g.code, Description: `${g.name}${one && u === 'kg' ? ` – ${qty} kg` : ''}`, Quantity: one ? qty : 1, UnitAmount: one ? Math.round(total / qty * 10000) / 10000 : total,
         AccountCode: g.acct, TaxType: g.tax };
     });
   } else LineItems = lines.map(l => {

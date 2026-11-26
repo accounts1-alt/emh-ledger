@@ -1272,7 +1272,7 @@ async function openWeigh(o) {
     ${steps(o.status)}
     ${o.notes ? `<div class="mnote">${esc(o.notes)}</div>` : ''}
     ${hasChick || hasBeef ? `<div class="wtw"><div class="wpkt" data-pkt></div>
-      ${hasBeef ? `<label>Beef weight<span><input data-fkg inputmode="decimal" value="${esc(fkg)}"> kg</span></label>` : ''}</div>` : ''}
+</div>` : ''}
     <div class="wtop"><span style="flex:1"></span>
       <label class="phb">📷 Photo labels<input type="file" accept="image/*" multiple hidden data-ph></label></div>
     <div class="lbx hide" data-lbx></div>
@@ -1556,7 +1556,7 @@ async function invOpen(o) {
   const r3 = v => Math.round(v * 1000) / 1000;
   const sumKg = f => r3(live.filter(f).reduce((a, l) => a + (kgOf(l) || 0), 0));
   const figs = [['Beef packing', sumKg(l => listOf(l.item_id) === 'beef')], ['Chicken packing', sumKg(l => listOf(l.item_id) === 'chicken')],
-    ['Beef weight', o.beef_kg != null ? Number(o.beef_kg) : 0], [`Chickens${o.birds ? ` (${qf(o.birds)})` : ''} weighed`, o.bird_kg != null ? Number(o.bird_kg) : 0]].filter(([, v]) => v);
+ [`Chickens${o.birds ? ` (${qf(o.birds)})` : ''} weighed`, o.bird_kg != null ? Number(o.bird_kg) : 0]].filter(([, v]) => v);
   const fromOrder = () => live.map(l => {
     const r = pl.get(l.item_id), per = r?.per || (listOf(l.item_id) === 'chicken' ? 'pack' : 'kg');
     const packs = l.packs_made != null ? Number(l.packs_made) : l.unit === 'units' && !l.added_by_ops ? Number(l.qty_ordered) : null;
@@ -1655,14 +1655,15 @@ function xeroPreview(o, lines) {
     lines.filter(x => !(isPack(x.item_id) && !isNum(x.price))).forEach(x => { const it = item(x.item_id); const code = it?.xero_code;
       if (!code) { loose.push(x); return; }
       const name = it.list === 'xero' ? it.name : xDesc(it) || code, key = code + '|' + name.toLowerCase();
-      const g = groups.get(key) || { name, item: it.list === 'xero' ? '' : (it.xero_name || code), kg: 0, total: 0, from: [] };
-      g.total += Math.round(Number(x.qty) * Number(x.price) * 100) / 100; if (x.unit === 'kg') g.kg += Number(x.qty); g.from.push(x.description); groups.set(key, g); });
+      const g = groups.get(key) || { name, item: it.list === 'xero' ? '' : (it.xero_name || code), qty: 0, units: new Set(), total: 0, from: [] };
+      g.total += Math.round(Number(x.qty) * Number(x.price) * 100) / 100; g.qty += Number(x.qty); g.units.add(x.unit || 'kg'); g.from.push(x.description); groups.set(key, g); });
     const unlinked = [...new Set(loose.map(x => x.item_id))];
     m.querySelector('[data-body]').innerHTML = `
       <div class="xpc"><b>Customer in Xero:</b> ${c?.xero_contact_id ? `${esc(c.xero_name || c.name)} <button class="link" data-chc>change</button>` : `<span class="late-t">not linked</span> – <button class="link" data-chc>choose the Xero contact</button> <span class="muted">(or leave it: Xero contact “${esc(c?.name)}” is used or created)</span>`}</div>
       <div data-cpick></div>
-      <table class="xpt"><thead><tr><th>Xero line</th><th class="num">Kg</th><th class="num">Total</th></tr></thead><tbody>
-      ${[...groups.values()].map(g => `<tr><td><b>${esc(g.name)}</b>${g.item && g.item !== g.name ? ` <span class="muted" style="font-size:13px">(Xero item: ${esc(g.item)})</span>` : ''}<div class="muted" style="font-size:13px">${esc(g.from.join(', '))}</div></td><td class="num">${g.kg ? qf(Math.round(g.kg * 1000) / 1000) : ''}</td><td class="num">${money(Math.round(g.total * 100) / 100)}</td></tr>`).join('')}
+      <table class="xpt"><thead><tr><th>Xero line</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Total</th></tr></thead><tbody>
+      ${[...groups.values()].map(g => `<tr><td><b>${esc(g.name)}</b>${g.item && g.item !== g.name ? ` <span class="muted" style="font-size:13px">(Xero item: ${esc(g.item)})</span>` : ''}<div class="muted" style="font-size:13px">${esc(g.from.join(', '))}</div></td>${(() => { const one = g.units.size === 1 && g.qty > 0, u = [...g.units][0], q3 = Math.round(g.qty * 1000) / 1000, t = Math.round(g.total * 100) / 100;
+        return `<td class="num">${one ? `${qf(q3)} ${u === 'kg' ? 'kg' : u === 'pack' ? 'packets' : 'units'}` : '1'}</td><td class="num">${one ? money(t / q3) : money(t)}</td><td class="num">${money(t)}</td></tr>`; })()}`).join('')}
       </tbody></table>
       ${unlinked.length ? `<div class="xpu"><b class="late-t">Not linked to a Xero item yet:</b>${unlinked.map(id => `<div class="xpr3"><span>${esc(item(id)?.name)}</span><div data-xl="${id}"></div><input data-xld="${id}" placeholder="Description on invoice (optional)"></div>`).join('')}
         <div class="muted" style="font-size:13px">Choose once – it’s remembered (and can be changed on the Xero links screen).</div></div>` : ''}
@@ -1940,11 +1941,11 @@ async function reportsScreen() {
     cols = [['Customer', r => `<b>${esc(r.k)}</b>`], ['Orders', r => r.orders.size, 'num'], ['Kg', r => n1(r.kg), 'num'], ['Resale', r => money(r.amt), 'num b']];
     chartOf = r => r.amt;
   } else {   // chickens & packing, per week
-    orders.filter(o => o.status !== 'new').forEach(o => { const r = get(wkOf(o.delivery_date)); r.orders.add(o.id); r.birds += Number(o.birds) || 0; r.fkg += Number(o.beef_kg) || 0;
-      o.lines.forEach(l => { const L = listOf(l.item_id), pk = Number(l.packs_made) || 0; if (L === 'chicken') { r.cpk += pk; r.bkg += Number(l.qty_net) || 0; } if (L === 'beef') r.fpk += pk; }); });
+    orders.filter(o => o.status !== 'new').forEach(o => { const r = get(wkOf(o.delivery_date)); r.orders.add(o.id); r.birds += Number(o.birds) || 0;
+      o.lines.forEach(l => { const L = listOf(l.item_id), pk = Number(l.packs_made) || 0; if (L === 'chicken') { r.cpk += pk; r.bkg += Number(l.qty_net) || 0; } if (L === 'beef') { r.fpk += pk; r.fkg += Number(l.qty_net) || 0; } }); });
     title = 'Week'; sortBy = 'k';
     cols = [['Week of', r => `<b>${ukDate(r.k)}</b>`], ['Orders', r => r.orders.size, 'num'], ['Chickens', r => n0(r.birds), 'num b'], ['Chicken packing kg', r => n1(r.bkg), 'num'],
-      ['Chicken packs', r => n0(r.cpk), 'num'], ['Beef kg', r => n1(r.fkg), 'num'], ['Beef packs', r => n0(r.fpk), 'num']];
+      ['Chicken packs', r => n0(r.cpk), 'num'], ['Beef packing kg', r => n1(r.fkg), 'num'], ['Beef packs', r => n0(r.fpk), 'num']];
     chartOf = r => r.birds;
   }
   const rows = [...M.values()].sort((x, y) => sortBy === 'k' ? x.k.localeCompare(y.k) : y.amt - x.amt);
@@ -1954,7 +1955,7 @@ async function reportsScreen() {
     ? `<div class="cbars" style="height:190px">${top.map(r => `<div class="cb on"><span class="cv">${chartOf(r) ? n0(chartOf(r)) : ''}</span><span class="cbar" style="height:${Math.max(chartOf(r) ? 5 : 2, chartOf(r) / mx * 100)}%"></span><span class="cl">${ukDate(r.k).replace(/^\w+ /, '')}</span></div>`).join('')}</div>`
     : top.map(r => `<div class="hbar"><span class="hl">${esc(r.k)}</span><span class="ht"><span class="bar" style="width:${Math.max(1, chartOf(r) / mx * 100)}%"></span></span><span class="hv">${fmtC(chartOf(r))}</span></div>`).join('');
   const foot = rows.length > 1 && R.view !== 'chick' ? `<tr class="tfoot"><td><b>Total</b></td>${cols.slice(1).map(([h, , c]) => `<td class="${c || ''}">${h === 'Orders' ? new Set(rows.flatMap(r => [...r.orders])).size : h === 'Kg' ? n1(rows.reduce((s, r) => s + r.kg, 0)) : h === 'Packets / units' ? n0(rows.reduce((s, r) => s + r.packs, 0)) : h === 'Invoiced' || h === 'Resale' ? money(rows.reduce((s, r) => s + r.amt, 0)) : ''}</td>`).join('')}</tr>`
-    : rows.length > 1 ? `<tr class="tfoot"><td><b>Total</b></td>${cols.slice(1).map(([h, , c]) => { const f = { Orders: r => r.orders.size, Chickens: r => r.birds, 'Chicken packing kg': r => r.bkg, 'Chicken packs': r => r.cpk, 'Beef kg': r => r.fkg, 'Beef packs': r => r.fpk }[h]; const v = rows.reduce((s, r) => s + f(r), 0); return `<td class="${c || ''}">${/kg/.test(h) ? n1(v) : n0(v)}</td>`; }).join('')}</tr>` : '';
+    : rows.length > 1 ? `<tr class="tfoot"><td><b>Total</b></td>${cols.slice(1).map(([h, , c]) => { const f = { Orders: r => r.orders.size, Chickens: r => r.birds, 'Chicken packing kg': r => r.bkg, 'Chicken packs': r => r.cpk, 'Beef packing kg': r => r.fkg, 'Beef packs': r => r.fpk }[h]; const v = rows.reduce((s, r) => s + f(r), 0); return `<td class="${c || ''}">${/kg/.test(h) ? n1(v) : n0(v)}</td>`; }).join('')}</tr>` : '';
   const custs = customers.filter(c => !c.orphaned).sort((x, y) => x.name.localeCompare(y.name));
   const chip = (k, t, on, attr) => `<button class="chip ${on ? 'on' : ''}" ${attr}="${k}">${t}</button>`;
   const views = [['cust', 'Sales by customer'], ['item', 'Sales by item'], ['chick', 'Chickens & packing']].concat(role === 'admin' ? [['resale', 'Resale']] : []);
