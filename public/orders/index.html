@@ -459,6 +459,17 @@
   .pdone { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
   .ptk { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0 28px; margin-top: 10px; padding-top: 14px; border-top: 2px dashed #eef0f7; }
   .ptk .pcol { padding: 0; border-left: 0; } .ptk .ptask { background: #f7f8fd; }
+  .ilay { display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 18px; align-items: start; } .ilay.nopane { grid-template-columns: minmax(0, 1fr); }
+  @media (max-width: 1000px) { .ilay { grid-template-columns: 1fr; } }
+  .ilist { padding: 14px; position: sticky; top: 76px; max-height: calc(100vh - 100px); overflow: auto; } .ilist .fsearch { width: 100%; margin-bottom: 8px; }
+  .igrp { margin-top: 12px; } .igrp .sech { margin: 0 6px 6px; }
+  .irow2 { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: none; border-radius: 14px; padding: 10px 12px; margin-bottom: 2px; color: #1d2a5b; }
+  .irow2:hover { background: #f4f6fd; } .irow2.on { background: #1d2a5b; color: #fff; } .irow2.on i { color: #c9d0ea; }
+  .irow2 b { display: block; font-size: 16px; font-weight: 900; } .irow2 i { display: block; font-style: normal; font-size: 13px; color: #6b7497; font-weight: 600; } .irow2 .tg { margin: 4px 0 0; display: inline-block; }
+  .irow2 .it { font-weight: 900; white-space: nowrap; } .irow2.flat { cursor: default; } .irow2.flat:hover { background: none; }
+  .ipanew { min-height: 300px; } .ipempty { background: #fff; border-radius: 22px; padding: 80px 20px; text-align: center; color: #9aa1bd; font-weight: 800; font-size: 18px; border: 2px dashed #dde2f0; }
+  .mbox.ipane { max-width: none !important; width: 100%; box-shadow: 0 1px 2px rgba(29,42,91,.05), 0 4px 16px rgba(29,42,91,.04); }
+  .isum { margin-left: auto; font-weight: 700; color: #6b7497; } .isum b { color: #1d2a5b; font-size: 18px; font-weight: 900; }
   .hide { display: none !important; }
 </style>
 </head>
@@ -1027,6 +1038,9 @@ async function procDoneList() {
   });
 }
 function modal(html) {
+  if (PANE) { const m = PANE; PANE = null; m.innerHTML = `<div class="mbox ipane">${html}</div>`;
+    m.querySelector('[data-print]')?.addEventListener('click', e => safe(() => printOrder(e.currentTarget.dataset.print)));
+    return { m, close: () => {} }; }
   const m = document.createElement('div'); m.className = 'mback';
   m.innerHTML = `<div class="mbox">${html}</div>`;
   document.body.appendChild(m); P.modal = true;
@@ -1405,7 +1419,8 @@ async function xeroCall(body) {
 async function xeroStatus() { try { XERO = await xeroCall({ action: 'status' }); } catch { XERO = { connected: false }; } return XERO; }
 
 /* ================= INVOICING ================= */
-const I = { tab: 'todo', search: '' };
+const I = { tab: 'todo', search: '', sel: null };
+let PANE = null;   // when set, the next modal() opens in this panel instead of a pop-up
 async function invScreen() {
   await xeroStatus();
   const status = { todo: 'fulfilled', missing: 'fulfilled', done: 'invoiced', waiting: 'new' }[I.tab];
@@ -1434,27 +1449,38 @@ async function invScreen() {
   const groups = []; list.forEach(o => { const k = dateOf(o); let g = groups.find(x => x.k === k); if (!g) groups.push(g = { k, list: [] }); g.list.push(o); });
   const gname = k => (k === today ? 'Today · ' : k === isoDay(-1) ? 'Yesterday · ' : k === isoDay(1) ? 'Tomorrow · ' : '') + ukDate(k);
   const card = o => {
-    if (I.tab === 'waiting') return `<div class="pcard flat"><div class="pcn">${esc(cust(o.customer_id)?.name)}</div><div class="pci">${itemsShort(o, false)}</div></div>`;
-    const t = tot(o);
-    return `<button class="pcard icard" data-o="${o.id}"><div class="icl"><div class="pcn">${esc(cust(o.customer_id)?.name)}${status === 'fulfilled' && missing(o) ? ' <span class="tg tg-ed">prices needed</span>' : ''}</div>
-      <div class="pci">#${o.id} · ${o.lines.length} item${o.lines.length === 1 ? '' : 's'}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}</div></div><div class="icr">${t ? money(t) : '—'}</div></button>`;
+    const t = tot(o), sub = `#${o.id} · ${o.lines.length} item${o.lines.length === 1 ? '' : 's'}${o.invoice_number ? ' · ' + esc(o.invoice_number) : ''}`;
+    if (I.tab === 'waiting') return `<div class="irow2 flat" data-name="${esc((cust(o.customer_id)?.name || '').toLowerCase())}"><span><b>${esc(cust(o.customer_id)?.name)}</b><i>${itemsShort(o, false)}</i></span></div>`;
+    return `<button class="irow2 ${I.sel == o.id ? 'on' : ''}" data-o="${o.id}" data-name="${esc((cust(o.customer_id)?.name || '').toLowerCase())}"><span><b>${esc(cust(o.customer_id)?.name)}</b>
+      <i>${sub}</i>${status === 'fulfilled' && missing(o) ? '<span class="tg tg-ed">prices needed</span>' : ''}</span><span class="it">${t ? money(t) : '—'}</span></button>`;
   };
+  const waitSum = list.reduce((x, o) => x + (tot(o) || 0), 0);
   $('#view').innerHTML = `
     <div class="fbar">
       <button class="chip ${I.tab === 'todo' ? 'on' : ''}" data-t="todo">To invoice <span class="n">${nTodo}</span></button>
       <button class="chip warn ${I.tab === 'missing' ? 'on' : ''}" data-t="missing">Prices missing${nMiss != null ? ` <span class="n">${nMiss}</span>` : ''}</button>
       <button class="chip ${I.tab === 'done' ? 'on' : ''}" data-t="done">Invoiced</button>
       <button class="chip ${I.tab === 'waiting' ? 'on' : ''}" data-t="waiting">Not packed yet <span class="n">${nWait}</span></button>
-      <input class="fsearch grow" id="i-search" placeholder="🔍 Customer" value="${esc(I.search)}"></div>
-    ${groups.length ? groups.map(g => `<section class="pday"><div class="pdh"><span class="pdn" style="font-size:19px">${I.tab === 'done' ? 'Invoiced ' : I.tab === 'waiting' ? 'Prepare ' : 'Delivered '}${gname(g.k)}</span></div>
-      <div class="icards">${g.list.map(card).join('')}</div></section>`).join('')
-      : `<div class="empty">${I.tab === 'todo' ? 'Nothing to invoice 👍' : I.tab === 'missing' ? 'No prices missing 👍' : 'Nothing here'}</div>`}`;
-  document.querySelectorAll('.fbar [data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; invScreen(); });
+      ${status === 'fulfilled' && waitSum ? `<span class="isum">Ready to invoice: <b>${money(waitSum)}</b></span>` : ''}</div>
+    <div class="ilay ${I.tab === 'waiting' ? 'nopane' : ''}">
+      <div class="ilist card"><input class="fsearch" id="i-search" placeholder="🔍 Customer" value="${esc(I.search)}">
+        ${groups.length ? groups.map(g => `<div class="igrp"><div class="sech">${I.tab === 'done' ? 'Invoiced ' : I.tab === 'waiting' ? 'Prepare ' : 'Delivered '}${gname(g.k)}</div>${g.list.map(card).join('')}</div>`).join('')
+          : `<div class="empty" style="padding:30px 0">${I.tab === 'todo' ? 'Nothing to invoice 👍' : I.tab === 'missing' ? 'No prices missing 👍' : 'Nothing here'}</div>`}</div>
+      ${I.tab === 'waiting' ? '' : '<div id="i-pane" class="ipanew"><div class="ipempty">Choose an order on the left</div></div>'}
+    </div>`;
+  document.querySelectorAll('.fbar [data-t]').forEach(b => b.onclick = () => { I.tab = b.dataset.t; I.sel = null; invScreen(); });
   const isf = () => { const t = I.search.trim().toLowerCase();
-    document.querySelectorAll('.icards > *').forEach(c => c.style.display = !t || c.querySelector('.pcn').textContent.toLowerCase().includes(t) ? '' : 'none');
-    document.querySelectorAll('section.pday').forEach(sc => sc.style.display = [...sc.querySelectorAll('.icards > *')].some(c => c.style.display !== 'none') ? '' : 'none'); };
+    document.querySelectorAll('.irow2').forEach(c => c.style.display = !t || c.dataset.name.includes(t) ? '' : 'none');
+    document.querySelectorAll('.igrp').forEach(g => g.style.display = [...g.querySelectorAll('.irow2')].some(c => c.style.display !== 'none') ? '' : 'none'); };
   $('#i-search').oninput = e => { I.search = e.target.value; isf(); }; isf();
-  document.querySelectorAll('.icard[data-o]').forEach(b => b.onclick = () => safe(() => invOpen(orders.find(o => o.id == b.dataset.o))));
+  const open = o => safe(async () => {
+    I.sel = o.id; document.querySelectorAll('.irow2').forEach(r => r.classList.toggle('on', r.dataset.o == o.id));
+    PANE = $('#i-pane'); try { await invOpen(o); } finally { PANE = null; }
+    const x = $('#i-pane .mx'); if (x) x.onclick = () => { I.sel = null; document.querySelectorAll('.irow2').forEach(r => r.classList.remove('on')); $('#i-pane').innerHTML = '<div class="ipempty">Choose an order on the left</div>'; };
+    const c = $('#i-pane [data-c]'); if (c && x) c.onclick = x.onclick;
+  });
+  document.querySelectorAll('.irow2[data-o]').forEach(b => b.onclick = () => open(list.find(o => o.id == b.dataset.o)));
+  if (I.tab !== 'waiting') { const pick = list.find(o => o.id == I.sel) || (I.search ? null : list[0]); if (pick) open(pick); }
 }
 /* The invoice: one line per item sent, priced from the customer's price list; plain lines (e.g. the meat) can be added */
 async function invOpen(o) {
