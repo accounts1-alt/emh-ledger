@@ -517,6 +517,7 @@
   .tdone summary::before { content: '▸ '; } .tdone[open] summary::before { content: '▾ '; } .otask.done .ttx { color: #6b7497; cursor: default; } .otask .ok { color: #14a073; font-weight: 900; width: 22px; text-align: center; }
   .pri { display: inline-flex; flex-direction: column; margin-right: 8px; vertical-align: middle; } .pri button { border: 0; background: #eef1fa; color: #1d2a5b; font-size: 9px; line-height: 1; padding: 3px 6px; border-radius: 5px; margin: 1px 0; }
   .pri button:hover:not(:disabled) { background: #ff6b5b; color: #fff; } .pri button:disabled { opacity: .3; } .otab th:nth-child(1) { width: 110px; }
+  .shnew { margin-top: 10px; border-style: dashed; font-size: 15px; padding: 8px 12px; background: #fff; }
   .hide { display: none !important; }
 </style>
 </head>
@@ -616,7 +617,7 @@ function combo(el, o) {
     shown = o.list().filter(r => r.active !== false && words.every(w => r.name.toLowerCase().includes(w))).slice(0, 40).map(r => ({ id: r.id, label: r.name }));
     if (o.onAdd && t && !o.list().some(r => r.name.toLowerCase() === t)) shown.push({ add: inp.value.trim(), label: `+ Add “${inp.value.trim()}” as a new ${o.addWord}` });
     hi = Math.min(hi, Math.max(0, shown.length - 1));
-    box.innerHTML = shown.length ? shown.map((s, i) => `<div class="opt ${s.add != null ? 'add' : ''} ${i === hi ? 'hi' : ''}" data-i="${i}">${esc(s.label)}</div>`).join('') : `<div class="opt muted">Nothing found${o.addWord === 'item' ? ' – add it in Xero, then Sync in Settings' : ''}</div>`;
+    box.innerHTML = shown.length ? shown.map((s, i) => `<div class="opt ${s.add != null ? 'add' : ''} ${i === hi ? 'hi' : ''}" data-i="${i}">${esc(s.label)}</div>`).join('') : `<div class="opt muted">Nothing found</div>`;
     box.classList.remove('hide');
   }
   async function pick(s) {
@@ -642,9 +643,12 @@ async function newCustomer(name) {
   const row = await q(sb.from('ord_customers').insert({ name }).select().single());
   customers.push(row); customers.sort((a, b) => a.name.localeCompare(b.name)); toast('Customer added'); return row;
 }
-async function newItem(name) {
-  const row = await q(sb.from('ord_items').insert({ name }).select().single());
-  items.push(row); items.sort((a, b) => a.name.localeCompare(b.name)); toast('Item added'); return row;
+async function newItem(name, list = 'plain') {   // typed in a box that didn't find it: add it to that app list straight away
+  name = name.trim(); if (!name) return null;
+  const dup = items.find(i => i.list === list && i.active !== false && !i.orphaned && i.name.toLowerCase() === name.toLowerCase()); if (dup) return dup;
+  const position = Math.max(-1, ...items.filter(i => i.list === list).map(i => Number(i.position) || 0)) + 1;
+  const row = await q(sb.from('ord_items').insert({ name, list, position }).select().single());
+  items.push(row); items.sort((a, b) => a.name.localeCompare(b.name)); toast(`“${name}” added to ${LISTS[list] || 'items'}`); return row;
 }
 const tog = (val, attrs) => `<span class="tog ${val ? '' : 'need'}">${['kg', 'units'].map(u => `<button type="button" ${attrs} data-u="${u}" class="${val === u ? 'on' : ''}">${u === 'kg' ? 'Kilos' : 'Units'}</button>`).join('')}</span>`;
 
@@ -898,7 +902,7 @@ function drawLines(focusLast) {
       <button class="link" data-rm>✕ remove</button>
       ${l.packing?.length ? `<div class="muted" style="flex-basis:100%;font-size:13px">Packing (older order): ${l.packing.map(r => `${r.qty_planned !== '' ? r.qty_planned + ' × ' : ''}${esc(r.how)}`).join(', ')}</div>` : ''}`;
     box.appendChild(row);
-    const c = combo(row.querySelector('.c'), { list: () => l.item_id && listOf(l.item_id) === 'xero' ? [item(l.item_id), ...appItems('plain')] : appItems('plain'), value: l.item_id, placeholder: 'Type item name…', addWord: 'plain item', onPick: id => { l.item_id = id;
+    const c = combo(row.querySelector('.c'), { list: () => l.item_id && listOf(l.item_id) === 'xero' ? [item(l.item_id), ...appItems('plain')] : appItems('plain'), value: l.item_id, placeholder: 'Type item name…', addWord: 'plain item', onAdd: n => newItem(n, 'plain'), onPick: id => { l.item_id = id;
       if (!l.unit && LAST_UNIT[id]) { l.unit = LAST_UNIT[id]; row.querySelectorAll('.tog button').forEach(x => x.classList.toggle('on', x.dataset.u === l.unit)); row.querySelector('.tog').classList.remove('need'); }
       row.querySelector('.q').focus(); } });
     row.querySelector('.q').oninput = e => l.qty_ordered = e.target.value.trim();
@@ -918,8 +922,14 @@ function setPackets(id, v) {
 }
 function sheet(list, attr) {
   const its = appItems(list);
-  if (!its.length) return `<div class="muted">No ${LISTS[list].toLowerCase()} items yet – add them in Settings → Items.</div>`;
-  return `<div class="sheet">${its.map(i => { const l = packLine(i.id); return `<label class="shr ${l ? 'on' : ''}"><span>${esc(i.name)}</span><input ${attr} data-it="${i.id}" inputmode="numeric" placeholder="–" value="${esc(l ? qf(l.qty_ordered) : '')}"></label>`; }).join('')}</div>`;
+  const add = `<input class="shnew" data-new="${list}" placeholder="+ New ${list} packing item – type the name and press Enter">`;
+  if (!its.length) return `<div class="muted">No ${LISTS[list].toLowerCase()} items yet.</div>${add}`;
+  return `<div class="sheet">${its.map(i => { const l = packLine(i.id); return `<label class="shr ${l ? 'on' : ''}"><span>${esc(i.name)}</span><input ${attr} data-it="${i.id}" inputmode="numeric" placeholder="–" value="${esc(l ? qf(l.qty_ordered) : '')}"></label>`; }).join('')}</div>${add}`;
+}
+function wireNew(box, redraw) {
+  const inp = box.querySelector('[data-new]'); if (!inp) return;
+  inp.onkeydown = e => { if (e.key !== 'Enter') return; e.preventDefault(); const v = inp.value.trim(); if (!v) return;
+    safe(async () => { const it = await newItem(v, inp.dataset.new); if (!it) return; redraw(); box.querySelector(`[data-it="${it.id}"]`)?.focus(); }); };
 }
 function drawBeef() {
   const box = $('#o-beefbox'); if (!O.showBeef) { box.innerHTML = ''; return; }
@@ -927,6 +937,7 @@ function drawBeef() {
     <button class="link" data-hide style="margin-left:auto">hide</button></div>${sheet('beef', 'data-bp')}
     <div class="muted" data-tot style="margin-top:6px"></div></div>`;
   const tot = () => { const n = appItems('beef').reduce((a, i) => a + (Number(packLine(i.id)?.qty_ordered) || 0), 0); box.querySelector('[data-tot]').textContent = n ? `${qf(n)} packets in total` : ''; };
+  wireNew(box, drawBeef);
   box.querySelectorAll('[data-bp]').forEach(i => i.oninput = () => { setPackets(Number(i.dataset.it), i.value.trim()); i.closest('.shr').classList.toggle('on', !!packLine(Number(i.dataset.it))); tot(); });
   box.querySelector('[data-hide]').onclick = () => { if (appItems('beef').some(i => packLine(i.id)) && !confirm('Remove the beef packing from this order?')) return; appItems('beef').forEach(i => setPackets(i.id, '')); O.showBeef = false; const n = O.notes; drawOrder(); $('#o-notes').value = n; };
   tot();
@@ -938,6 +949,7 @@ function drawChick() {
     <div class="muted" style="margin:8px 0 4px">How they want it packed – packets of each:</div>${sheet('chicken', 'data-cp')}
     <div class="bcbox" data-bc></div></div>`;
   const check = () => box.querySelector('[data-bc]').innerHTML = birdCheckHtml(O.birds, appItems('chicken').map(i => ({ item_id: i.id, packs: packLine(i.id)?.qty_ordered })));
+  wireNew(box, drawChick);
   box.querySelector('#o-birds').oninput = e => { O.birds = e.target.value.trim(); check(); };
   box.querySelectorAll('[data-cp]').forEach(i => i.oninput = () => { setPackets(Number(i.dataset.it), i.value.trim()); i.closest('.shr').classList.toggle('on', !!packLine(Number(i.dataset.it))); check(); });
   box.querySelector('[data-hide]').onclick = () => { if ((O.birds || appItems('chicken').some(i => packLine(i.id))) && !confirm('Remove the chickens from this order?')) return; appItems('chicken').forEach(i => setPackets(i.id, '')); O.birds = null; O.showChick = false; const n = O.notes; drawOrder(); $('#o-notes').value = n; };
@@ -1386,7 +1398,7 @@ async function openWeigh(o) {
     wl.querySelectorAll('[data-ld]').forEach(i => i.oninput = () => lines[i.dataset.ld].ld = i.value);
     wl.querySelectorAll('[data-ec]').forEach(el => {
       const ix = +el.dataset.ec, l = lines[ix];
-      combo(el, { list: () => items, value: l.newItem, placeholder: 'Type the item sent…', addWord: 'item', onPick: id => { l.newItem = id; if (!l.id) l.item_id = id; l.mode = null; draw(ix); } });
+      combo(el, { list: () => items, value: l.newItem, placeholder: 'Type the item sent…', addWord: 'plain item', onAdd: n => newItem(n, 'plain'), onPick: id => { l.newItem = id; if (!l.id) l.item_id = id; l.mode = null; draw(ix); } });
     });
     if (focusIx != null) wl.querySelector(`.wi[data-ix="${focusIx}"]`)?.focus();
   }
@@ -1394,7 +1406,7 @@ async function openWeigh(o) {
   m.querySelector('[data-bkg]')?.addEventListener('input', e => bkg = e.target.value.trim());
   m.querySelector('[data-fkg]')?.addEventListener('input', e => fkg = e.target.value.trim());
   if (m.querySelector('[data-rs]')) m.querySelector('[data-rs]').onclick = e => { resaleOn = !resaleOn; const b = e.currentTarget; b.classList.toggle('on', resaleOn); b.querySelector('b').textContent = resaleOn ? 'ON' : 'OFF'; draw(); };
-  combo(m.querySelector('.ac'), { list: () => [...appItems('plain'), ...appItems('beef'), ...appItems('chicken')], value: null, clear: true, placeholder: '+ Add item', addWord: 'item',
+  combo(m.querySelector('.ac'), { list: () => [...appItems('plain'), ...appItems('beef'), ...appItems('chicken')], value: null, clear: true, placeholder: '+ Add item', addWord: 'plain item', onAdd: n => newItem(n, 'plain'),
     onPick: id => { lines.push({ id: null, item_id: id, newItem: id, added_by_ops: true, w: '', t: '0', mode: null, pack: [], rv: '' }); draw(lines.length - 1); } });
   m.querySelector('.mbox').addEventListener('click', e => { if (!e.target.closest('.dots')) m.querySelectorAll('.dm').forEach(x => x.classList.add('hide')); });
   m.querySelector('.mx').onclick = close; m.querySelector('[data-c]').onclick = close;
@@ -1639,7 +1651,7 @@ async function invOpen(o) {
     m.querySelector('[data-c]').onclick = close;
     return;
   }
-  combo(m.querySelector('[data-addl]'), { list: () => [...appItems('plain'), ...appItems('beef'), ...appItems('chicken')], value: null, clear: true, placeholder: '+ Add a line (e.g. Beef, Chicken – the meat)',
+  combo(m.querySelector('[data-addl]'), { list: () => [...appItems('plain'), ...appItems('beef'), ...appItems('chicken')], value: null, clear: true, placeholder: '+ Add a line (e.g. Beef, Chicken – the meat)', addWord: 'plain item', onAdd: n => newItem(n, 'plain'),
     onPick: id => { const r = pl.get(id), nx = { item_id: id, description: item(id)?.name || '', qty: '', unit: r?.per || 'kg', price: r ? qf(r.price) : '', kind: 'line' };
       lines = sortLines([...lines, nx]); draw(); box.querySelector(`[data-q="${lines.indexOf(nx)}"]`)?.focus(); } });
   m.querySelector('[data-dall]').oninput = e => { const v = e.target.value.trim(); lines.forEach(x => x.discount = v); draw(); };
